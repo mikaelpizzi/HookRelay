@@ -8,9 +8,11 @@
   ],
   "scripts": {
     "dev": "concurrently -n \"API,DASH\" -c \"blue,magenta\" \"npm run start:api\" \"npm run start:dashboard\"",
+    "dev:fast": "concurrently -n \"API,DASH\" -c \"blue,magenta\" \"npm run start:api:fast\" \"npm run start:dashboard\"",
     "docker:up": "wsl docker compose up -d",
     "docker:down": "wsl docker compose stop",
     "start:api": "npm --prefix apps/api run start:dev",
+    "start:api:fast": "node apps/api/dist/main.js",
     "start:dashboard": "npm --prefix apps/dashboard run dev",
     "lint": "npm --prefix apps/api run lint && npm --prefix apps/dashboard run lint",
     "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/dashboard run typecheck",

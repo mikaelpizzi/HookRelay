@@ -110,21 +110,41 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   const refreshHealth = useCallback(async () => {
     const start = performance.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch(`${apiBaseUrl}/health`, {
-        signal: controller.signal,
-        cache: 'no-store',
-      });
-      clearTimeout(timeoutId);
+    const tryProbe = async (url: string): Promise<Response> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(`${url}/health`, {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        clearTimeout(timeoutId);
+        return res;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    };
+
+    try {
+      let res: Response;
+      try {
+        res = await tryProbe(apiBaseUrl);
+      } catch (primaryErr) {
+        if (apiBaseUrl.includes('localhost')) {
+          const fallbackUrl = apiBaseUrl.replace('localhost', '127.0.0.1');
+          res = await tryProbe(fallbackUrl);
+        } else {
+          throw primaryErr;
+        }
+      }
 
       const elapsed = Math.round(performance.now() - start);
       setHealthLatencyMs(elapsed);
 
       if (res.ok) {
-        if (elapsed > 5000) {
+        if (elapsed > 4000) {
           setIsColdStart(true);
           setHealthStatus('DEGRADED');
         } else {
@@ -138,18 +158,21 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       const elapsed = Math.round(performance.now() - start);
       setHealthLatencyMs(elapsed);
       setHealthStatus('OFFLINE');
-      if (elapsed > 4500) {
+      if (elapsed > 2800) {
         setIsColdStart(true);
       }
     }
   }, [apiBaseUrl]);
 
-  // Periodic health check polling
+  // Adaptive polling: probe every 2.5s while OFFLINE/CHECKING, relax to 10s once ONLINE
   useEffect(() => {
     refreshHealth();
-    const interval = setInterval(refreshHealth, 10000);
-    return () => clearInterval(interval);
-  }, [refreshHealth]);
+    const intervalMs = healthStatus === 'ONLINE' ? 10000 : 2500;
+    const timer = setTimeout(() => {
+      refreshHealth();
+    }, intervalMs);
+    return () => clearTimeout(timer);
+  }, [healthStatus, refreshHealth]);
 
   const apiFetch = useCallback(
     async <T = any>(path: string, options?: RequestInit): Promise<T> => {
