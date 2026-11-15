@@ -45,6 +45,22 @@ export class AuthController {
     return this.authService.listApiKeys(tenantId);
   }
 
+  @Get('api-keys')
+  @UseGuards(ApiKeyGuard)
+  async listMyApiKeys(@CurrentTenant() tenantId: string) {
+    return this.authService.listApiKeys(tenantId);
+  }
+
+  @Post('api-keys')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(ApiKeyGuard)
+  async createMyApiKey(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: CreateApiKeyDto,
+  ) {
+    return this.authService.createApiKey(tenantId, dto);
+  }
+
   /**
    * Diagnostic / validation endpoint protected by ApiKeyGuard.
    * Returns authenticated tenant context.

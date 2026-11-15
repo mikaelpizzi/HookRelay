@@ -93,4 +93,13 @@ export class EndpointsController {
   ) {
     return this.endpointsService.unsubscribeTopic(tenantId, endpointId, topicId);
   }
+
+  @Post(':id/reset-circuit')
+  @HttpCode(HttpStatus.OK)
+  async resetCircuit(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.endpointsService.resetCircuit(tenantId, id);
+  }
 }

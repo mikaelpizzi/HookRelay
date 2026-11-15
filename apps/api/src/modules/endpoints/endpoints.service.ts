@@ -8,6 +8,7 @@ import {
   environment_type,
   webhook_endpoints,
   endpoint_topic_subscriptions,
+  circuit_state,
 } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { SsrfValidatorService } from './ssrf-validator.service';
@@ -333,6 +334,31 @@ export class EndpointsService {
             endpoint_id: endpointId,
             topic_id: topicId,
           },
+        },
+      });
+    });
+  }
+
+  /**
+   * Manually resets an endpoint circuit to CLOSED and consecutive_failures = 0.
+   */
+  async resetCircuit(
+    tenantId: string,
+    id: string,
+  ): Promise<webhook_endpoints> {
+    await this.getEndpointById(tenantId, id);
+
+    return this.prisma.withTenantContext(tenantId, async (tx) => {
+      return tx.webhook_endpoints.update({
+        where: { id },
+        data: {
+          circuit_status: circuit_state.CLOSED,
+          consecutive_failures: 0,
+          circuit_opened_at: null,
+          updated_at: new Date(),
+        },
+        include: {
+          endpoint_environments: true,
         },
       });
     });

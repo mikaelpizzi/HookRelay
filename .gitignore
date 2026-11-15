@@ -7,4 +7,5 @@ dist/
 coverage/
 .next/
 .turbo/
+*.tsbuildinfo
 STUDY_GUIDE.md

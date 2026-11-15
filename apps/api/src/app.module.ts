@@ -10,6 +10,7 @@ import { IngestModule } from './modules/ingest/ingest.module';
 import { DispatcherModule } from './modules/dispatcher/dispatcher.module';
 import { DemoSinkModule } from './modules/demo-sink/demo-sink.module';
 import { ArchiverModule } from './modules/archiver/archiver.module';
+import { DeliveriesModule } from './modules/deliveries/deliveries.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ArchiverModule } from './modules/archiver/archiver.module';
     DispatcherModule,
     DemoSinkModule,
     ArchiverModule,
+    DeliveriesModule,
   ],
   controllers: [HealthController],
   providers: [],

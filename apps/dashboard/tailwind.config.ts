@@ -13,7 +13,17 @@ const config: Config = {
         foreground: "var(--foreground)",
       },
       fontFamily: {
-        mono: ["var(--font-mono)", "monospace"],
+        mono: [
+          "var(--font-mono)",
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "Monaco",
+          "Consolas",
+          "Liberation Mono",
+          "Courier New",
+          "monospace",
+        ],
       },
     },
   },

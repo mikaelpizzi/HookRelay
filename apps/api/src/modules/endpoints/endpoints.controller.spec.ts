@@ -41,6 +41,11 @@ describe('EndpointsController', () => {
       subscribeTopic: jest.fn().mockResolvedValue(mockSubscription),
       listSubscriptions: jest.fn().mockResolvedValue([mockSubscription]),
       unsubscribeTopic: jest.fn().mockResolvedValue(mockSubscription),
+      resetCircuit: jest.fn().mockResolvedValue({
+        ...mockEndpoint,
+        circuit_status: 'CLOSED',
+        consecutive_failures: 0,
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -162,6 +167,18 @@ describe('EndpointsController', () => {
       mockTenantId,
       mockEndpointId,
       mockTopicId,
+    );
+  });
+
+  it('should reset endpoint circuit', async () => {
+    const result = await controller.resetCircuit(
+      mockTenantId,
+      mockEndpointId,
+    );
+    expect(result.circuit_status).toBe('CLOSED');
+    expect(endpointsService.resetCircuit).toHaveBeenCalledWith(
+      mockTenantId,
+      mockEndpointId,
     );
   });
 });

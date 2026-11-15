@@ -511,4 +511,32 @@ describe('EndpointsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('resetCircuit', () => {
+    it('should reset endpoint circuit to CLOSED and clear failures', async () => {
+      const mockUpdated = {
+        ...mockEndpoint,
+        circuit_status: 'CLOSED',
+        consecutive_failures: 0,
+        circuit_opened_at: null,
+      };
+
+      prismaService.withTenantContext.mockImplementation((_tId: string, cb: any) =>
+        cb({
+          webhook_endpoints: {
+            findFirst: jest.fn().mockResolvedValue({
+              ...mockEndpoint,
+              circuit_status: 'OPEN',
+              consecutive_failures: 5,
+            }),
+            update: jest.fn().mockResolvedValue(mockUpdated),
+          },
+        }),
+      );
+
+      const result = await service.resetCircuit(mockTenantId, mockEndpointId);
+      expect(result.circuit_status).toBe('CLOSED');
+      expect(result.consecutive_failures).toBe(0);
+    });
+  });
 });
