@@ -7,6 +7,9 @@
     "apps/dashboard"
   ],
   "scripts": {
+    "dev": "concurrently -n \"API,DASH\" -c \"blue,magenta\" \"npm run start:api\" \"npm run start:dashboard\"",
+    "docker:up": "wsl docker compose up -d",
+    "docker:down": "wsl docker compose stop",
     "start:api": "npm --prefix apps/api run start:dev",
     "start:dashboard": "npm --prefix apps/dashboard run dev",
     "lint": "npm --prefix apps/api run lint && npm --prefix apps/dashboard run lint",
@@ -16,5 +19,8 @@
     "build": "npm --prefix apps/api run build && npm --prefix apps/dashboard run build",
     "seed": "npm --prefix apps/api run seed",
     "docker:build:api": "docker build -f apps/api/Dockerfile -t hookrelay-api apps/api"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7"
   }
 }
