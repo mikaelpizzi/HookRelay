@@ -1,0 +1,11 @@
+node_modules
+apps/api/node_modules
+apps/dashboard/node_modules
+apps/api/dist
+apps/dashboard/.next
+.git
+.github
+.agents
+.env
+.env.*
+*.log

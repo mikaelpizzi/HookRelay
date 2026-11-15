@@ -21,7 +21,10 @@ export class S3ArchiveAdapter implements ArchiveStoragePort, OnModuleInit {
   constructor(@Optional() customClient?: S3Client) {
     const endpoint = process.env.AWS_ENDPOINT_URL || 'http://localhost:9297';
     const region = process.env.AWS_REGION || 'us-east-1';
-    this.bucket = process.env.AWS_S3_ARCHIVE_BUCKET || 'hookrelay-archives';
+    this.bucket =
+      process.env.S3_ARCHIVE_BUCKET ||
+      process.env.AWS_S3_ARCHIVE_BUCKET ||
+      'hookrelay-archives';
 
     this.client =
       customClient ||

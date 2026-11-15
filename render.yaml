@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: hookrelay-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: AWS_ENDPOINT_URL
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_ARCHIVE_BUCKET
+        value: hookrelay-cold-archives
+      - key: DASHBOARD_URL
+        sync: false
+      - key: ALLOW_LOCAL_WEBHOOKS
+        value: "false"
+      - key: WORKER_CONCURRENCY
+        value: "5"
+      - key: OUTBOX_BATCH_SIZE
+        value: "100"
+      - key: CIRCUIT_BREAKER_COOLDOWN_MS
+        value: "60000"
+      - key: ARCHIVER_ENABLED
+        value: "false"
