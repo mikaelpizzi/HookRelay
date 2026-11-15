@@ -7,6 +7,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { EndpointsModule } from './modules/endpoints/endpoints.module';
 import { IngestModule } from './modules/ingest/ingest.module';
+import { DispatcherModule } from './modules/dispatcher/dispatcher.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { IngestModule } from './modules/ingest/ingest.module';
     CatalogModule,
     EndpointsModule,
     IngestModule,
+    DispatcherModule,
   ],
   controllers: [HealthController],
   providers: [],
