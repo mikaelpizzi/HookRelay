@@ -37,6 +37,10 @@ export class SsrfValidatorService {
       throw new BadRequestException('SSRF_BLOCKED: Hostname is required');
     }
 
+    if (this.isAllowedLocalUrl(parsed)) {
+      return;
+    }
+
     const normalizedHost = rawHostname.toLowerCase();
     if (normalizedHost === 'localhost' || normalizedHost.endsWith('.localhost')) {
       throw new BadRequestException('SSRF_BLOCKED: Host resolves to blocked address (localhost)');
@@ -72,6 +76,35 @@ export class SsrfValidatorService {
         );
       }
     }
+  }
+
+  /**
+   * Determines if a target URL is an allowed local endpoint (e.g. internal demo sink or local test mode).
+   * Allows localhost / loopback addresses targeting demo sink routes, or any local endpoint if ALLOW_LOCAL_WEBHOOKS=true.
+   */
+  isAllowedLocalUrl(parsedUrl: URL): boolean {
+    if (process.env.ALLOW_LOCAL_WEBHOOKS === 'true') {
+      return true;
+    }
+
+    const rawHost = parsedUrl.hostname.toLowerCase();
+    const cleanHost =
+      rawHost.startsWith('[') && rawHost.endsWith(']')
+        ? rawHost.slice(1, -1)
+        : rawHost;
+
+    const isLocalhost =
+      cleanHost === 'localhost' ||
+      cleanHost.endsWith('.localhost') ||
+      cleanHost === '127.0.0.1' ||
+      cleanHost === '::1';
+
+    const path = parsedUrl.pathname.replace(/\/+$/, '');
+    const isDemoSinkPath =
+      path === '/api/demo/webhook-sink' ||
+      path === '/api/v1/demo/webhook-sink';
+
+    return isLocalhost && isDemoSinkPath;
   }
 
   /**

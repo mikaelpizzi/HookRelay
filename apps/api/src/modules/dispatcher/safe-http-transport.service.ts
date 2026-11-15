@@ -32,12 +32,20 @@ const BODY_TIMEOUT_MS = 5000;
 @Injectable()
 export class SafeHttpTransport implements OnModuleDestroy {
   private dispatcher: Dispatcher;
+  private localDispatcher: Dispatcher;
+  private customDispatcherSet = false;
 
   constructor(
     private readonly ssrfValidator: SsrfValidatorService,
     private readonly hmacSigner: HmacSignerService,
   ) {
     this.dispatcher = this.createSecureAgent();
+    this.localDispatcher = new Agent({
+      connectTimeout: CONNECT_TIMEOUT_MS,
+      headersTimeout: HEADERS_TIMEOUT_MS,
+      bodyTimeout: BODY_TIMEOUT_MS,
+      maxRedirections: 0,
+    });
   }
 
   /**
@@ -75,34 +83,37 @@ export class SafeHttpTransport implements OnModuleDestroy {
     }
 
     // Direct check on IP literal or localhost hostname before making network requests
+    const isLocalAllowed = this.ssrfValidator.isAllowedLocalUrl(parsedUrl);
     const rawHost = parsedUrl.hostname.toLowerCase();
     const cleanHost =
       rawHost.startsWith('[') && rawHost.endsWith(']')
         ? rawHost.slice(1, -1)
         : rawHost;
 
-    if (cleanHost === 'localhost' || cleanHost.endsWith('.localhost')) {
-      const latencyMs = Math.round(performance.now() - startTime);
-      return {
-        success: false,
-        latencyMs,
-        errorCode: 'SSRF_BLOCKED',
-        errorMessage: 'SSRF_BLOCKED: Host resolves to blocked address (localhost)',
-      };
-    }
+    if (!isLocalAllowed) {
+      if (cleanHost === 'localhost' || cleanHost.endsWith('.localhost')) {
+        const latencyMs = Math.round(performance.now() - startTime);
+        return {
+          success: false,
+          latencyMs,
+          errorCode: 'SSRF_BLOCKED',
+          errorMessage: 'SSRF_BLOCKED: Host resolves to blocked address (localhost)',
+        };
+      }
 
-    const directIpCheck = this.ssrfValidator.checkIpAddress(cleanHost);
-    if (
-      directIpCheck.blocked &&
-      !directIpCheck.reason?.startsWith('Invalid IP address format')
-    ) {
-      const latencyMs = Math.round(performance.now() - startTime);
-      return {
-        success: false,
-        latencyMs,
-        errorCode: 'SSRF_BLOCKED',
-        errorMessage: `SSRF_BLOCKED: Host '${cleanHost}' is in forbidden range: ${directIpCheck.reason}`,
-      };
+      const directIpCheck = this.ssrfValidator.checkIpAddress(cleanHost);
+      if (
+        directIpCheck.blocked &&
+        !directIpCheck.reason?.startsWith('Invalid IP address format')
+      ) {
+        const latencyMs = Math.round(performance.now() - startTime);
+        return {
+          success: false,
+          latencyMs,
+          errorCode: 'SSRF_BLOCKED',
+          errorMessage: `SSRF_BLOCKED: Host '${cleanHost}' is in forbidden range: ${directIpCheck.reason}`,
+        };
+      }
     }
 
     // Generate cryptographic HMAC-SHA256 signature
@@ -123,11 +134,17 @@ export class SafeHttpTransport implements OnModuleDestroy {
     };
 
     try {
+      const targetDispatcher = this.customDispatcherSet
+        ? this.dispatcher
+        : isLocalAllowed
+          ? this.localDispatcher
+          : this.dispatcher;
+
       const response = await request(options.url, {
         method: 'POST',
         headers,
         body: options.payload,
-        dispatcher: this.dispatcher,
+        dispatcher: targetDispatcher,
         maxRedirections: 0,
         headersTimeout: HEADERS_TIMEOUT_MS,
         bodyTimeout: BODY_TIMEOUT_MS,
@@ -331,6 +348,7 @@ export class SafeHttpTransport implements OnModuleDestroy {
 
   setDispatcher(dispatcher: Dispatcher): void {
     this.dispatcher = dispatcher;
+    this.customDispatcherSet = true;
   }
 
   getDispatcher(): Dispatcher {
@@ -338,16 +356,21 @@ export class SafeHttpTransport implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (typeof this.dispatcher?.destroy === 'function') {
-      try {
-        await this.dispatcher.destroy();
-      } catch {
-        if (typeof this.dispatcher?.close === 'function') {
-          await this.dispatcher.close();
+    const destroyDispatcher = async (disp: any) => {
+      if (typeof disp?.destroy === 'function') {
+        try {
+          await disp.destroy();
+        } catch {
+          if (typeof disp?.close === 'function') {
+            await disp.close();
+          }
         }
+      } else if (typeof disp?.close === 'function') {
+        await disp.close();
       }
-    } else if (typeof this.dispatcher?.close === 'function') {
-      await this.dispatcher.close();
-    }
+    };
+
+    await destroyDispatcher(this.dispatcher);
+    await destroyDispatcher(this.localDispatcher);
   }
 }

@@ -508,4 +508,42 @@ describe('SafeHttpTransport', () => {
       await realTransport.onModuleDestroy();
     });
   });
+
+  describe('Local Demo Sink dispatch allowance', () => {
+    it('allows dispatching to localhost demo sink when intercepting via dispatcher', async () => {
+      const client = mockAgent.get('http://localhost:3000');
+      client
+        .intercept({
+          path: '/api/demo/webhook-sink',
+          method: 'POST',
+        })
+        .reply(200, { received: true });
+
+      const result = await transport.dispatchWebhook({
+        ...defaultOptions,
+        url: 'http://localhost:3000/api/demo/webhook-sink',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.statusCode).toBe(200);
+    });
+
+    it('allows dispatching to 127.0.0.1 demo sink v1 path', async () => {
+      const client = mockAgent.get('http://127.0.0.1:3000');
+      client
+        .intercept({
+          path: '/api/v1/demo/webhook-sink',
+          method: 'POST',
+        })
+        .reply(200, { received: true });
+
+      const result = await transport.dispatchWebhook({
+        ...defaultOptions,
+        url: 'http://127.0.0.1:3000/api/v1/demo/webhook-sink',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.statusCode).toBe(200);
+    });
+  });
 });

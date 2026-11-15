@@ -287,4 +287,44 @@ describe('SsrfValidatorService', () => {
       ).rejects.toThrow(/SSRF_BLOCKED.*could not be resolved/);
     });
   });
+
+  describe('Local Demo Sink & Development Exceptions', () => {
+    const originalEnv = process.env.ALLOW_LOCAL_WEBHOOKS;
+
+    afterEach(() => {
+      process.env.ALLOW_LOCAL_WEBHOOKS = originalEnv;
+    });
+
+    it('should allow demo sink endpoint on localhost and 127.0.0.1 without ALLOW_LOCAL_WEBHOOKS', async () => {
+      delete process.env.ALLOW_LOCAL_WEBHOOKS;
+
+      await expect(
+        service.validateUrl('http://localhost:3000/api/demo/webhook-sink'),
+      ).resolves.toBeUndefined();
+
+      await expect(
+        service.validateUrl('http://127.0.0.1:3000/api/v1/demo/webhook-sink'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('should still block non-demo localhost paths when ALLOW_LOCAL_WEBHOOKS is unset', async () => {
+      delete process.env.ALLOW_LOCAL_WEBHOOKS;
+
+      await expect(
+        service.validateUrl('http://localhost:3000/internal-admin'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should allow any local endpoint when ALLOW_LOCAL_WEBHOOKS is true', async () => {
+      process.env.ALLOW_LOCAL_WEBHOOKS = 'true';
+
+      await expect(
+        service.validateUrl('http://localhost:8080/any-local-webhook'),
+      ).resolves.toBeUndefined();
+
+      await expect(
+        service.validateUrl('http://127.0.0.1:4000/custom/hook'),
+      ).resolves.toBeUndefined();
+    });
+  });
 });

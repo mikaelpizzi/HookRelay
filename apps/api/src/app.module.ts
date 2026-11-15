@@ -8,6 +8,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { EndpointsModule } from './modules/endpoints/endpoints.module';
 import { IngestModule } from './modules/ingest/ingest.module';
 import { DispatcherModule } from './modules/dispatcher/dispatcher.module';
+import { DemoSinkModule } from './modules/demo-sink/demo-sink.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { DispatcherModule } from './modules/dispatcher/dispatcher.module';
     EndpointsModule,
     IngestModule,
     DispatcherModule,
+    DemoSinkModule,
   ],
   controllers: [HealthController],
   providers: [],
