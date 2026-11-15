@@ -44,7 +44,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [isColdStart, setIsColdStart] = useState<boolean>(false);
 
   const apiBaseUrl =
-    process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+    process.env.NEXT_PUBLIC_API_URL ||
+    (typeof window !== 'undefined' ? '' : 'http://127.0.0.1:3000');
 
   // Hydrate credentials from localStorage on client mount
   useEffect(() => {
@@ -110,12 +111,16 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   const refreshHealth = useCallback(async () => {
     const start = performance.now();
+    const probeUrl =
+      typeof window !== 'undefined'
+        ? '/health'
+        : 'http://127.0.0.1:3000/health';
 
     const tryProbe = async (url: string): Promise<Response> => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       try {
-        const res = await fetch(`${url}/health`, {
+        const res = await fetch(url, {
           signal: controller.signal,
           cache: 'no-store',
         });
@@ -130,11 +135,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     try {
       let res: Response;
       try {
-        res = await tryProbe(apiBaseUrl);
+        res = await tryProbe(probeUrl);
       } catch (primaryErr) {
-        if (apiBaseUrl.includes('localhost')) {
-          const fallbackUrl = apiBaseUrl.replace('localhost', '127.0.0.1');
-          res = await tryProbe(fallbackUrl);
+        // Fallback to direct localhost:3000 if same-origin rewrite failed
+        if (typeof window !== 'undefined' && probeUrl === '/health') {
+          res = await tryProbe('http://127.0.0.1:3000/health');
         } else {
           throw primaryErr;
         }
@@ -162,7 +167,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         setIsColdStart(true);
       }
     }
-  }, [apiBaseUrl]);
+  }, []);
 
   // Adaptive polling: probe every 2.5s while OFFLINE/CHECKING, relax to 10s once ONLINE
   useEffect(() => {
@@ -176,7 +181,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   const apiFetch = useCallback(
     async <T = any>(path: string, options?: RequestInit): Promise<T> => {
-      const url = `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+      const url = `${apiBaseUrl}${normalizedPath}`;
       const headers = new Headers(options?.headers || {});
 
       if (!headers.has('Content-Type') && !(options?.body instanceof FormData)) {
