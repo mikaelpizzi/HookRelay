@@ -9,6 +9,7 @@ import { EndpointsModule } from './modules/endpoints/endpoints.module';
 import { IngestModule } from './modules/ingest/ingest.module';
 import { DispatcherModule } from './modules/dispatcher/dispatcher.module';
 import { DemoSinkModule } from './modules/demo-sink/demo-sink.module';
+import { ArchiverModule } from './modules/archiver/archiver.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { DemoSinkModule } from './modules/demo-sink/demo-sink.module';
     IngestModule,
     DispatcherModule,
     DemoSinkModule,
+    ArchiverModule,
   ],
   controllers: [HealthController],
   providers: [],
