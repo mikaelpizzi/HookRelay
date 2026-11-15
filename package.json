@@ -14,6 +14,7 @@
     "start:api": "npm --prefix apps/api run start:dev",
     "start:api:fast": "node apps/api/dist/main.js",
     "start:dashboard": "npm --prefix apps/dashboard run dev",
+    "clean": "npm --prefix apps/dashboard run clean",
     "lint": "npm --prefix apps/api run lint && npm --prefix apps/dashboard run lint",
     "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/dashboard run typecheck",
     "test:unit": "npm --prefix apps/api run test:unit",
