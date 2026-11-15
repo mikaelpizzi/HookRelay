@@ -11,10 +11,15 @@ import {
   Send,
   Sliders,
   Check,
+  ArrowRight,
+  ShieldCheck,
+  Server,
+  Zap,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 import { useTenant } from '../context/tenant-context';
 import { Badge } from '../components/ui/badge';
-import { CodeBlock } from '../components/ui/code-block';
 import { DemoSinkLogEntry, DemoSinkMode, EventTopic } from '../lib/types';
 
 const SAMPLE_PAYLOADS: Record<string, any> = {
@@ -50,6 +55,14 @@ const SAMPLE_PAYLOADS: Record<string, any> = {
   },
 };
 
+interface ToastNotification {
+  id: string;
+  type: 'success' | 'warning' | 'error';
+  title: string;
+  message: string;
+  details?: string;
+}
+
 export default function DemoSandboxPage() {
   const { apiFetch, environment } = useTenant();
 
@@ -74,6 +87,21 @@ export default function DemoSandboxPage() {
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
   const [autoRefreshLogs, setAutoRefreshLogs] = useState<boolean>(true);
 
+  // Visual Animated Flow Step: 0 = idle, 1 = app emitting, 2 = HookRelay processing, 3 = receptor receiving
+  const [flowStep, setFlowStep] = useState<number>(0);
+
+  // Toast Notification
+  const [toast, setToast] = useState<ToastNotification | null>(null);
+
+  // Auto-dismiss toast after 6 seconds
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   // Load available topics
   const loadTopics = useCallback(async () => {
     try {
@@ -85,7 +113,7 @@ export default function DemoSandboxPage() {
         }
       }
     } catch {
-      // API or key error
+      // Demo fallback
     }
   }, [apiFetch, selectedTopic]);
 
@@ -183,24 +211,28 @@ export default function DemoSandboxPage() {
     }
   };
 
-  // Trigger Event
+  // Trigger Event with animated flow and toast
   const handleTriggerEvent = async () => {
     let parsedData: any;
     try {
       parsedData = JSON.parse(payloadText);
     } catch {
-      setPayloadError('Invalid JSON format');
+      setPayloadError('Formato JSON inválido');
       return;
     }
 
     setIsSubmitting(true);
     setLastSubmissionResult(null);
 
+    // Step 1: App Emisora envia evento
+    setFlowStep(1);
+
     const activeTopic =
       selectedTopic === '__custom__' ? customTopic.trim() : selectedTopic;
     if (!activeTopic) {
-      alert('Please specify a valid topic');
+      alert('Especifica un tópico válido');
       setIsSubmitting(false);
+      setFlowStep(0);
       return;
     }
 
@@ -215,6 +247,9 @@ export default function DemoSandboxPage() {
 
     const start = performance.now();
     try {
+      // Step 2: HookRelay procesa evento encolando y firmando
+      setTimeout(() => setFlowStep(2), 250);
+
       const result = await apiFetch<any>('/api/v1/events', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -227,9 +262,47 @@ export default function DemoSandboxPage() {
         data: result,
       });
 
+      // Step 3: Receptor externo recibe el webhook
+      setTimeout(() => {
+        setFlowStep(3);
+
+        // Disparar toast según el modo del receptor
+        if (sinkMode === 'HEALTHY') {
+          setToast({
+            id: String(Date.now()),
+            type: 'success',
+            title: 'Webhook entregado exitosamente (200 OK)',
+            message:
+              'HookRelay validó el contrato JSON, aseguró la persistencia en Outbox, firmó con HMAC-SHA256 y el servidor receptor confirmó la recepción.',
+            details: `Latencia de ingesta: ${latencyMs}ms | Event ID: ${result?.id || 'Generado'}`,
+          });
+        } else if (sinkMode === 'DOWN') {
+          setToast({
+            id: String(Date.now()),
+            type: 'warning',
+            title: 'Receptor caído (503): En cola de reintentos',
+            message:
+              'El servidor externo rechazó la conexión. HookRelay activó el Backoff Exponencial con Jitter y reintentará automáticamente sin perder datos.',
+            details: 'Estado de entrega: RETRYING | Fallos consecutivos incrementados en Circuit Breaker',
+          });
+        } else if (sinkMode === 'SLOW') {
+          setToast({
+            id: String(Date.now()),
+            type: 'warning',
+            title: 'Timeout de respuesta (>5s): Reintento programado',
+            message:
+              'El servidor externo tardó más del límite de seguridad. HookRelay abortó el socket TCP para proteger los hilos y programó el reintento.',
+            details: 'Tiempo de espera agotado (>5000ms) | Reintento automático agendado',
+          });
+        }
+      }, 750);
+
       // Refresh logs shortly after to show incoming dispatch
-      setTimeout(() => loadSinkLogs(), 800);
-      setTimeout(() => loadSinkLogs(), 2000);
+      setTimeout(() => loadSinkLogs(), 900);
+      setTimeout(() => loadSinkLogs(), 2200);
+
+      // Reset flow animation
+      setTimeout(() => setFlowStep(0), 3000);
     } catch (err: any) {
       const latencyMs = Math.round(performance.now() - start);
       setLastSubmissionResult({
@@ -237,13 +310,63 @@ export default function DemoSandboxPage() {
         latencyMs,
         error: err.message,
       });
+      setFlowStep(0);
+
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Fallo en la ingesta del evento',
+        message: err.message || 'Error al comunicarse con la API de HookRelay.',
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6 relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-5 right-5 z-50 max-w-md w-full animate-in fade-in slide-in-from-top-4 duration-300">
+          <div
+            className={`p-4 rounded-lg border shadow-xl backdrop-blur-md flex items-start gap-3 ${
+              toast.type === 'success'
+                ? 'bg-emerald-950/90 border-emerald-700/80 text-emerald-200'
+                : toast.type === 'warning'
+                  ? 'bg-amber-950/90 border-amber-700/80 text-amber-200'
+                  : 'bg-rose-950/90 border-rose-700/80 text-rose-200'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            ) : toast.type === 'warning' ? (
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 space-y-1">
+              <div className="text-xs font-bold font-mono tracking-tight text-zinc-100">
+                {toast.title}
+              </div>
+              <p className="text-[11px] text-zinc-300 leading-relaxed font-sans">
+                {toast.message}
+              </p>
+              {toast.details && (
+                <div className="text-[10px] font-mono text-zinc-400 pt-1 border-t border-zinc-800/60 mt-1">
+                  {toast.details}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setToast(null)}
+              className="text-zinc-400 hover:text-zinc-100 transition-colors p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div>
@@ -251,9 +374,8 @@ export default function DemoSandboxPage() {
             <Play className="w-4 h-4 text-emerald-400" />
             <span>Demo Sandbox</span>
           </h1>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Ingest mock events, test receptor failure modes, and inspect
-            signatures in real time.
+          <p className="text-xs text-zinc-400 mt-0.5 font-sans">
+            Experimenta cómo viaja un webhook de extremo a extremo: desde la ingesta en tu app hasta la entrega segura al cliente final.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -263,15 +385,149 @@ export default function DemoSandboxPage() {
         </div>
       </div>
 
+      {/* 1. Diagrama Visual Horizontal de 3 Pasos */}
+      <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-4.5 space-y-3">
+        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+          <div className="flex items-center gap-2">
+            <Zap className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-zinc-300">
+              Arquitectura del Flujo de Webhooks
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-zinc-400">
+            {flowStep === 0 && 'Listo para disparar evento'}
+            {flowStep === 1 && '1/3 Tu app emitiendo evento...'}
+            {flowStep === 2 && '2/3 HookRelay asegurando en Outbox y firmando...'}
+            {flowStep === 3 && (
+              sinkMode === 'HEALTHY'
+                ? '3/3 Entregado al receptor (200 OK)'
+                : sinkMode === 'DOWN'
+                  ? '3/3 Servidor caído (503) -> En cola de reintentos'
+                  : '3/3 Timeout detectado (>5s) -> Reintento programado'
+            )}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch relative">
+          {/* Paso 1: Tu App Emisora */}
+          <div
+            className={`p-3.5 rounded-lg border transition-all duration-300 ${
+              flowStep === 1
+                ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-lg shadow-emerald-950/50'
+                : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-bold ${
+                    flowStep === 1
+                      ? 'bg-emerald-500 text-zinc-950'
+                      : 'bg-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  1
+                </span>
+                <span className="text-xs font-bold font-mono text-zinc-100">
+                  Tu App Emisora
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-500">Ingress</span>
+            </div>
+            <p className="text-[11px] text-zinc-400 font-sans leading-relaxed">
+              Publica el evento vía <code className="text-zinc-200 font-mono">POST /api/v1/events</code> con payload de negocio y clave de idempotencia.
+            </p>
+          </div>
+
+          {/* Paso 2: HookRelay Engine */}
+          <div
+            className={`p-3.5 rounded-lg border transition-all duration-300 ${
+              flowStep === 2
+                ? 'border-cyan-500 bg-cyan-950/40 ring-1 ring-cyan-500/50 shadow-lg shadow-cyan-950/50'
+                : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-bold ${
+                    flowStep === 2
+                      ? 'bg-cyan-500 text-zinc-950'
+                      : 'bg-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  2
+                </span>
+                <span className="text-xs font-bold font-mono text-zinc-100">
+                  HookRelay Engine
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-500">Core</span>
+            </div>
+            <p className="text-[11px] text-zinc-400 font-sans leading-relaxed">
+              Persiste en Outbox, encola en BullMQ, calcula firma <code className="text-zinc-200 font-mono">HMAC-SHA256</code> y aplica DNS Pinning.
+            </p>
+          </div>
+
+          {/* Paso 3: Servidor Receptor */}
+          <div
+            className={`p-3.5 rounded-lg border transition-all duration-300 ${
+              flowStep === 3
+                ? sinkMode === 'HEALTHY'
+                  ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-lg shadow-emerald-950/50'
+                  : sinkMode === 'DOWN'
+                    ? 'border-rose-500 bg-rose-950/40 ring-1 ring-rose-500/50 shadow-lg shadow-rose-950/50'
+                    : 'border-amber-500 bg-amber-950/40 ring-1 ring-amber-500/50 shadow-lg shadow-amber-950/50'
+                : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-bold ${
+                    flowStep === 3
+                      ? sinkMode === 'HEALTHY'
+                        ? 'bg-emerald-500 text-zinc-950'
+                        : sinkMode === 'DOWN'
+                          ? 'bg-rose-500 text-zinc-100'
+                          : 'bg-amber-500 text-zinc-950'
+                      : 'bg-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  3
+                </span>
+                <span className="text-xs font-bold font-mono text-zinc-100">
+                  Servidor Receptor
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-500">Egress</span>
+            </div>
+            <p className="text-[11px] text-zinc-400 font-sans leading-relaxed">
+              {sinkMode === 'HEALTHY' &&
+                'Verifica la firma criptográfica y confirma la recepción con HTTP 200 OK.'}
+              {sinkMode === 'DOWN' &&
+                'Simula fallo HTTP 503. HookRelay protege el endpoint y encola reintentos con jitter.'}
+              {sinkMode === 'SLOW' &&
+                'Simula retardo >5s. HookRelay corta el socket por timeout y agenda reintento.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Column: Event Generator */}
         <div className="space-y-4">
           <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
-                Event Dispatch Generator
-              </span>
-              <div className="flex gap-1.5">
+              <div>
+                <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
+                  Event Dispatch Generator
+                </span>
+                <p className="text-[11px] text-zinc-400 font-sans mt-0.5">
+                  Simula tu aplicación enviando una notificación de negocio en tiempo real.
+                </p>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
                 {Object.keys(SAMPLE_PAYLOADS).map((tplName) => (
                   <button
                     key={tplName}
@@ -291,7 +547,7 @@ export default function DemoSandboxPage() {
             {/* Topic Selection */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-mono text-zinc-400">
-                TOPIC NAME
+                TÓPICO DEL EVENTO
               </label>
               <div className="flex gap-2">
                 <select
@@ -329,7 +585,7 @@ export default function DemoSandboxPage() {
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-[11px] font-mono text-zinc-400">
-                  IDEMPOTENCY KEY (OPTIONAL)
+                  CLAVE DE IDEMPOTENCIA (OPCIONAL)
                 </label>
                 <button
                   type="button"
@@ -338,14 +594,14 @@ export default function DemoSandboxPage() {
                   }
                   className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
-                  Generate Random
+                  Generar Aleatoria
                 </button>
               </div>
               <input
                 type="text"
                 value={idempotencyKey}
                 onChange={(e) => setIdempotencyKey(e.target.value)}
-                placeholder="e.g. idem_98a72b0c (auto-generated if omitted)"
+                placeholder="e.g. idem_98a72b0c (garantiza entrega única si la red reintenta)"
                 className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-hidden focus:border-zinc-700"
               />
             </div>
@@ -354,15 +610,15 @@ export default function DemoSandboxPage() {
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-[11px] font-mono text-zinc-400">
-                  JSON PAYLOAD
+                  CARGA ÚTIL JSON (PAYLOAD)
                 </label>
                 {payloadError ? (
                   <span className="text-[10px] text-rose-400 font-mono">
-                    Syntax Error
+                    Error de Sintaxis
                   </span>
                 ) : (
                   <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                    <Check className="w-3 h-3" /> Valid JSON
+                    <Check className="w-3 h-3" /> JSON Válido
                   </span>
                 )}
               </div>
@@ -388,7 +644,7 @@ export default function DemoSandboxPage() {
               }`}
             >
               <Send className="w-3.5 h-3.5" />
-              <span>{isSubmitting ? 'Ingesting Event...' : 'Trigger Event'}</span>
+              <span>{isSubmitting ? 'Ingestando Evento...' : 'Disparar Evento (Trigger Event)'}</span>
             </button>
 
             {/* Result Box */}
@@ -403,8 +659,8 @@ export default function DemoSandboxPage() {
                 <div className="flex justify-between items-center font-bold">
                   <span>
                     {lastSubmissionResult.success
-                      ? 'EVENT ACCEPTED (202)'
-                      : 'INGESTION FAILED'}
+                      ? 'EVENTO ACEPTADO (202 ACCEPTED)'
+                      : 'FALLO EN INGESTA'}
                   </span>
                   <span>{lastSubmissionResult.latencyMs}ms</span>
                 </div>
@@ -427,7 +683,7 @@ export default function DemoSandboxPage() {
                       <span
                         className={
                           lastSubmissionResult.data?.deduplicated
-                            ? 'text-amber-400'
+                            ? 'text-amber-400 font-bold'
                             : 'text-emerald-400'
                         }
                       >
@@ -454,8 +710,8 @@ export default function DemoSandboxPage() {
                 <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
                   Receptor Simulation Control
                 </span>
-                <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
-                  Target: /api/demo/webhook-sink
+                <p className="text-[11px] text-zinc-400 font-sans mt-0.5">
+                  Simula el estado del servidor externo que recibe el webhook (prueba qué ocurre si se cae o responde lento).
                 </p>
               </div>
               <Badge statusText={sinkMode} size="sm">
@@ -515,13 +771,13 @@ export default function DemoSandboxPage() {
           {/* Live Sink Event Feed */}
           <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-2">
+              <div>
                 <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
-                  Live Receptor Feed
+                  Live Receptor Webhook Feed
                 </span>
-                <span className="text-[10px] font-mono text-zinc-500">
-                  ({sinkLogs.length} buffered)
-                </span>
+                <p className="text-[11px] text-zinc-400 font-sans mt-0.5">
+                  Inspección en tiempo real de los webhooks recibidos y verificación criptográfica de la firma HMAC-SHA256.
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -558,8 +814,7 @@ export default function DemoSandboxPage() {
             <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
               {sinkLogs.length === 0 ? (
                 <div className="p-8 text-center text-zinc-600 font-mono text-xs border border-dashed border-zinc-800/80 rounded">
-                  No webhooks received yet. Trigger an event on the left or wait
-                  for outbox poller.
+                  No hay webhooks recibidos aún. Dispara un evento a la izquierda para observar la entrega.
                 </div>
               ) : (
                 sinkLogs.map((log) => {
@@ -588,7 +843,7 @@ export default function DemoSandboxPage() {
                           </Badge>
                         </div>
                         <span className="text-[10px] text-zinc-500">
-                          Mode: {log.modeAtReceipt}
+                          Modo del receptor: {log.modeAtReceipt}
                         </span>
                       </div>
 
