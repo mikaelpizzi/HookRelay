@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import {
   CreateBucketCommand,
   GetObjectCommand,
@@ -18,7 +18,7 @@ export class S3ArchiveAdapter implements ArchiveStoragePort, OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
 
-  constructor(customClient?: S3Client) {
+  constructor(@Optional() customClient?: S3Client) {
     const endpoint = process.env.AWS_ENDPOINT_URL || 'http://localhost:9297';
     const region = process.env.AWS_REGION || 'us-east-1';
     this.bucket = process.env.AWS_S3_ARCHIVE_BUCKET || 'hookrelay-archives';
