@@ -1,0 +1,19 @@
+{
+  "name": "hookrelay-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "start:api": "npm --prefix apps/api run start:dev",
+    "start:dashboard": "npm --prefix apps/dashboard run dev",
+    "lint": "npm --prefix apps/api run lint && npm --prefix apps/dashboard run lint",
+    "typecheck": "npm --prefix apps/api run typecheck && npm --prefix apps/dashboard run typecheck",
+    "test:unit": "npm --prefix apps/api run test:unit",
+    "test:e2e": "npm --prefix apps/api run test:e2e",
+    "build": "npm --prefix apps/api run build && npm --prefix apps/dashboard run build",
+    "seed": "npm --prefix apps/api run seed"
+  }
+}
