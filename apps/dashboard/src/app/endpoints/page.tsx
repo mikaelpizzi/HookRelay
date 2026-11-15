@@ -243,7 +243,7 @@ export default function EndpointsPage() {
   const halfOpenCount = endpoints.filter((e) => e.circuit_status === 'HALF_OPEN').length;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-3 sm:p-5 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6">
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div>

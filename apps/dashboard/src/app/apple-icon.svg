@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" fill="none">
+  <rect width="180" height="180" rx="40" fill="#09090b"/>
+  <rect x="2" y="2" width="176" height="176" rx="38" stroke="#27272a" stroke-width="4"/>
+  <!-- Top Layer (Egress / Delivery) -->
+  <path d="M90 35L145 62L90 89L35 62L90 35Z" fill="#10b981"/>
+  <!-- Middle Layer (Queue / Relay Engine) -->
+  <path d="M35 84L90 111L145 84" stroke="#fafafa" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Bottom Layer (Ingress) -->
+  <path d="M35 118L90 145L145 118" stroke="#71717a" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

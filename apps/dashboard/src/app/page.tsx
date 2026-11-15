@@ -324,12 +324,12 @@ export default function DemoSandboxPage() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 relative">
+    <div className="p-3 sm:p-5 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 relative">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-5 right-5 z-50 max-w-md w-full animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-3 left-3 right-3 sm:left-auto sm:right-5 sm:top-5 z-50 sm:max-w-md w-auto animate-in fade-in slide-in-from-top-4 duration-300">
           <div
-            className={`p-4 rounded-lg border shadow-xl backdrop-blur-md flex items-start gap-3 ${
+            className={`p-3.5 sm:p-4 rounded-lg border shadow-xl backdrop-blur-md flex items-start gap-3 ${
               toast.type === 'success'
                 ? 'bg-emerald-950/90 border-emerald-700/80 text-emerald-200'
                 : toast.type === 'warning'
@@ -408,10 +408,10 @@ export default function DemoSandboxPage() {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch relative">
+        <div className="flex md:grid md:grid-cols-3 gap-3 items-stretch relative overflow-x-auto pb-2 md:pb-0 snap-x snap-mandatory">
           {/* Paso 1: Tu App Emisora */}
           <div
-            className={`p-3.5 rounded-lg border transition-all duration-300 ${
+            className={`min-w-[82vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
               flowStep === 1
                 ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-lg shadow-emerald-950/50'
                 : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
@@ -441,7 +441,7 @@ export default function DemoSandboxPage() {
 
           {/* Paso 2: HookRelay Engine */}
           <div
-            className={`p-3.5 rounded-lg border transition-all duration-300 ${
+            className={`min-w-[82vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
               flowStep === 2
                 ? 'border-cyan-500 bg-cyan-950/40 ring-1 ring-cyan-500/50 shadow-lg shadow-cyan-950/50'
                 : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
@@ -471,7 +471,7 @@ export default function DemoSandboxPage() {
 
           {/* Paso 3: Servidor Receptor */}
           <div
-            className={`p-3.5 rounded-lg border transition-all duration-300 ${
+            className={`min-w-[82vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
               flowStep === 3
                 ? sinkMode === 'HEALTHY'
                   ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-lg shadow-emerald-950/50'

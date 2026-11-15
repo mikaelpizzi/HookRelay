@@ -30,6 +30,9 @@ interface TenantContextValue {
   enterDemoTenant: (targetEnv?: EnvironmentType) => void;
   apiFetch: <T = any>(path: string, options?: RequestInit) => Promise<T>;
   refreshHealth: () => Promise<void>;
+  isMobileNavOpen: boolean;
+  setIsMobileNavOpen: (open: boolean) => void;
+  toggleMobileNav: () => void;
 }
 
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
@@ -42,6 +45,11 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [healthStatus, setHealthStatus] = useState<HealthState>('CHECKING');
   const [healthLatencyMs, setHealthLatencyMs] = useState<number | null>(null);
   const [isColdStart, setIsColdStart] = useState<boolean>(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
+
+  const toggleMobileNav = useCallback(() => {
+    setIsMobileNavOpen((prev) => !prev);
+  }, []);
 
   const apiBaseUrl =
     process.env.NEXT_PUBLIC_API_URL ||
@@ -236,6 +244,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         enterDemoTenant,
         apiFetch,
         refreshHealth,
+        isMobileNavOpen,
+        setIsMobileNavOpen,
+        toggleMobileNav,
       }}
     >
       {children}

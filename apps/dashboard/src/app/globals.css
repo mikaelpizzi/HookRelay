@@ -32,3 +32,16 @@ body {
   background: #3f3f46;
 }
 
+/* Touch & Mobile Optimizations */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
