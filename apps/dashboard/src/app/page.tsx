@@ -552,7 +552,16 @@ export default function DemoSandboxPage() {
               <div className="flex gap-2">
                 <select
                   value={selectedTopic}
-                  onChange={(e) => setSelectedTopic(e.target.value)}
+                  onChange={(e) => {
+                    const newTopic = e.target.value;
+                    setSelectedTopic(newTopic);
+                    if (SAMPLE_PAYLOADS[newTopic]) {
+                      setPayloadText(
+                        JSON.stringify(SAMPLE_PAYLOADS[newTopic], null, 2),
+                      );
+                      setPayloadError(null);
+                    }
+                  }}
                   className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-hidden focus:border-zinc-700"
                 >
                   {topics.map((t) => (
