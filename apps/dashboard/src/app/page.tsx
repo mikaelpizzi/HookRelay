@@ -17,10 +17,19 @@ import {
   Zap,
   X,
   AlertTriangle,
+  Timer,
+  Activity,
+  CornerDownRight,
+  ArrowUpRight,
 } from 'lucide-react';
 import { useTenant } from '../context/tenant-context';
 import { Badge } from '../components/ui/badge';
-import { DemoSinkLogEntry, DemoSinkMode, EventTopic } from '../lib/types';
+import {
+  Delivery,
+  DemoSinkLogEntry,
+  DemoSinkMode,
+  EventTopic,
+} from '../lib/types';
 
 const SAMPLE_PAYLOADS: Record<string, any> = {
   'order.created': {
@@ -79,6 +88,11 @@ export default function DemoSandboxPage() {
   const [idempotencyKey, setIdempotencyKey] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [lastSubmissionResult, setLastSubmissionResult] = useState<any | null>(null);
+
+  // Active Delivery Lifecycle Tracking
+  const [activeDelivery, setActiveDelivery] = useState<Delivery | null>(null);
+  const [inFlightSeconds, setInFlightSeconds] = useState<number>(0);
+  const [isDeliveryTracking, setIsDeliveryTracking] = useState<boolean>(false);
 
   // Receptor Mode & Logs
   const [sinkMode, setSinkMode] = useState<DemoSinkMode>('HEALTHY');
@@ -162,6 +176,107 @@ export default function DemoSandboxPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [autoRefreshLogs, loadSinkLogs]);
+
+  // High-resolution in-flight second counter
+  useEffect(() => {
+    if (!isDeliveryTracking) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setInFlightSeconds((prev) => +(prev + 0.1).toFixed(1));
+    }, 100);
+    return () => clearInterval(timer);
+  }, [isDeliveryTracking]);
+
+  // Real-time Delivery Poller
+  useEffect(() => {
+    if (!lastSubmissionResult?.data?.id || !isDeliveryTracking) return;
+    const eventId = lastSubmissionResult.data.id;
+
+    let isMounted = true;
+    let pollCount = 0;
+
+    const poll = async () => {
+      try {
+        const res = await apiFetch<{ items: Delivery[]; total: number }>(
+          `/api/v1/deliveries?eventId=${eventId}&limit=1`,
+        );
+        if (!isMounted) return;
+        const delivery = res?.items?.[0] || null;
+        if (delivery) {
+          setActiveDelivery(delivery);
+          loadSinkLogs();
+
+          if (delivery.status === 'DELIVERED') {
+            setIsDeliveryTracking(false);
+            setFlowStep(3);
+            setToast({
+              id: String(Date.now()),
+              type: 'success',
+              title: 'Webhook entregado exitosamente (200 OK)',
+              message:
+                'El receptor confirmó la recepción con 200 OK y la firma HMAC-SHA256 fue validada criptográficamente.',
+              details: `Intento ${delivery.attempt_count}/${delivery.max_attempts} | Latencia: ${delivery.delivery_attempts?.[0]?.latency_ms ?? 0}ms`,
+            });
+            setTimeout(() => setFlowStep(0), 4000);
+            return;
+          }
+
+          if (delivery.status === 'DEAD_LETTER') {
+            setIsDeliveryTracking(false);
+            setFlowStep(3);
+            setToast({
+              id: String(Date.now()),
+              type: 'error',
+              title: 'Agotados todos los intentos (Dead Letter Queue)',
+              message:
+                'El receptor no respondió después del límite de reintentos. HookRelay resguardó el evento en DLQ sin pérdida de datos.',
+              details: `Intentos: ${delivery.attempt_count}/${delivery.max_attempts} agotados`,
+            });
+            return;
+          }
+
+          const latestAttempt = delivery.delivery_attempts?.[0];
+          if (latestAttempt && !latestAttempt.is_success) {
+            setFlowStep(3);
+            if (latestAttempt.error_code === 'HEADERS_TIMEOUT' || (latestAttempt.latency_ms && latestAttempt.latency_ms >= 4500)) {
+              setToast({
+                id: String(Date.now()),
+                type: 'warning',
+                title: 'Timeout de 5.0s alcanzado: Conexión cortada',
+                message:
+                  'El servidor receptor tardó más de 5000ms. HookRelay abortó el socket TCP para proteger el sistema, registró el intento fallido y agendó el reintento en BullMQ con Backoff + Jitter.',
+                details: `Intento ${delivery.attempt_count}/${delivery.max_attempts} fallido | Latencia: ${latestAttempt.latency_ms}ms`,
+              });
+            } else if (latestAttempt.http_status === 503) {
+              setToast({
+                id: String(Date.now()),
+                type: 'warning',
+                title: 'Receptor caído (503 Service Unavailable)',
+                message:
+                  'El receptor rechazó la entrega con HTTP 503. HookRelay activó la cola de reintentos exponencial y sumó un fallo al Circuit Breaker.',
+                details: `Intento ${delivery.attempt_count}/${delivery.max_attempts} | Próximo reintento agendado`,
+              });
+            }
+          }
+        }
+      } catch {
+        // Silently continue polling
+      }
+
+      pollCount++;
+      if (pollCount > 40) {
+        setIsDeliveryTracking(false);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 1000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [lastSubmissionResult, isDeliveryTracking, apiFetch, loadSinkLogs]);
 
   // Handle Payload Changes
   const handlePayloadChange = (text: string) => {
@@ -248,7 +363,7 @@ export default function DemoSandboxPage() {
     const start = performance.now();
     try {
       // Step 2: HookRelay procesa evento encolando y firmando
-      setTimeout(() => setFlowStep(2), 250);
+      setTimeout(() => setFlowStep(2), 200);
 
       const result = await apiFetch<any>('/api/v1/events', {
         method: 'POST',
@@ -262,47 +377,23 @@ export default function DemoSandboxPage() {
         data: result,
       });
 
-      // Step 3: Receptor externo recibe el webhook
-      setTimeout(() => {
-        setFlowStep(3);
+      // Inicializar seguimiento en tiempo real de la entrega
+      setActiveDelivery(null);
+      setInFlightSeconds(0);
+      setIsDeliveryTracking(true);
 
-        // Disparar toast según el modo del receptor
-        if (sinkMode === 'HEALTHY') {
-          setToast({
-            id: String(Date.now()),
-            type: 'success',
-            title: 'Webhook entregado exitosamente (200 OK)',
-            message:
-              'HookRelay validó el contrato JSON, aseguró la persistencia en Outbox, firmó con HMAC-SHA256 y el servidor receptor confirmó la recepción.',
-            details: `Latencia de ingesta: ${latencyMs}ms | Event ID: ${result?.id || 'Generado'}`,
-          });
-        } else if (sinkMode === 'DOWN') {
-          setToast({
-            id: String(Date.now()),
-            type: 'warning',
-            title: 'Receptor caído (503): En cola de reintentos',
-            message:
-              'El servidor externo rechazó la conexión. HookRelay activó el Backoff Exponencial con Jitter y reintentará automáticamente sin perder datos.',
-            details: 'Estado de entrega: RETRYING | Fallos consecutivos incrementados en Circuit Breaker',
-          });
-        } else if (sinkMode === 'SLOW') {
-          setToast({
-            id: String(Date.now()),
-            type: 'warning',
-            title: 'Timeout de respuesta (>5s): Reintento programado',
-            message:
-              'El servidor externo tardó más del límite de seguridad. HookRelay abortó el socket TCP para proteger los hilos y programó el reintento.',
-            details: 'Tiempo de espera agotado (>5000ms) | Reintento automático agendado',
-          });
-        }
-      }, 750);
+      // Notificación inmediata de ingesta asegurada en Outbox
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: 'Evento persistido en Outbox (202 ACCEPTED)',
+        message:
+          'HookRelay validó el esquema JSON y aseguró el evento en PostgreSQL. El dispatcher seguro encola el envío en BullMQ hacia el receptor.',
+        details: `Latencia de ingesta: ${latencyMs}ms | Event ID: ${result?.id || 'Generado'}`,
+      });
 
-      // Refresh logs shortly after to show incoming dispatch
-      setTimeout(() => loadSinkLogs(), 900);
-      setTimeout(() => loadSinkLogs(), 2200);
-
-      // Reset flow animation
-      setTimeout(() => setFlowStep(0), 3000);
+      // Refrescar registros del receptor de inmediato
+      setTimeout(() => loadSinkLogs(), 800);
     } catch (err: any) {
       const latencyMs = Math.round(performance.now() - start);
       setLastSubmissionResult({
@@ -399,11 +490,17 @@ export default function DemoSandboxPage() {
             {flowStep === 1 && '1/3 Tu app emitiendo evento...'}
             {flowStep === 2 && '2/3 HookRelay asegurando en Outbox y firmando...'}
             {flowStep === 3 && (
-              sinkMode === 'HEALTHY'
-                ? '3/3 Entregado al receptor (200 OK)'
-                : sinkMode === 'DOWN'
-                  ? '3/3 Servidor caído (503) -> En cola de reintentos'
-                  : '3/3 Timeout detectado (>5s) -> Reintento programado'
+              isDeliveryTracking && inFlightSeconds < 5.0 && sinkMode === 'SLOW' && activeDelivery?.status !== 'DELIVERED'
+                ? `3/3 Conectando al receptor... (${inFlightSeconds}s / 5.0s límite)`
+                : activeDelivery?.status === 'RETRYING'
+                  ? `Intento ${activeDelivery.attempt_count}/${activeDelivery.max_attempts} fallido -> En cola de reintentos (Backoff + Jitter)`
+                  : activeDelivery?.status === 'DELIVERED'
+                    ? `3/3 Entregado al receptor (200 OK en ${activeDelivery.delivery_attempts?.[0]?.latency_ms || 12}ms)`
+                    : sinkMode === 'HEALTHY'
+                      ? '3/3 Entregado al receptor (200 OK)'
+                      : sinkMode === 'DOWN'
+                        ? '3/3 Servidor caído (503) -> En cola de reintentos'
+                        : '3/3 Timeout detectado (>5s) -> Reintento programado'
             )}
           </span>
         </div>
@@ -518,6 +615,198 @@ export default function DemoSandboxPage() {
           <span className="text-[10px] font-mono text-zinc-500">Paso 1 Tu App &rarr; 2 HookRelay &rarr; 3 Receptor</span>
         </div>
       </div>
+
+      {/* 2. Monitor de Ciclo de Vida y Diagnóstico de la Entrega en Tiempo Real */}
+      {lastSubmissionResult?.success && (
+        <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-4 sm:p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
+              <span className="text-xs font-semibold text-zinc-100 uppercase tracking-wide font-mono">
+                Monitor del Ciclo de Despacho en Vivo
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-mono text-zinc-400">
+                Event ID: <strong className="text-zinc-200 font-mono">{lastSubmissionResult.data?.id?.slice(0, 8)}...</strong>
+              </span>
+              <Badge
+                statusText={
+                  activeDelivery?.status ||
+                  (isDeliveryTracking ? 'IN_FLIGHT' : 'PENDING')
+                }
+                size="sm"
+              >
+                STATUS: {activeDelivery?.status || (isDeliveryTracking ? 'IN_FLIGHT' : 'PENDING')}
+              </Badge>
+              {activeDelivery && (
+                <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+                  Intento {activeDelivery.attempt_count} / {activeDelivery.max_attempts}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Lifecycle Step Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Step 1: Ingesta */}
+            <div className="p-3 rounded border border-emerald-800/60 bg-emerald-950/20 text-xs font-mono space-y-1">
+              <div className="flex items-center justify-between text-emerald-400 font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>1. Ingesta HTTP</span>
+                </span>
+                <span>202 ACCEPTED</span>
+              </div>
+              <p className="text-[11px] text-zinc-400 font-sans">
+                Outbox persistido en Postgres en <strong className="text-zinc-200 font-mono">{lastSubmissionResult.latencyMs}ms</strong>.
+              </p>
+            </div>
+
+            {/* Step 2: Engine & Worker */}
+            <div className="p-3 rounded border border-cyan-800/60 bg-cyan-950/20 text-xs font-mono space-y-1">
+              <div className="flex items-center justify-between text-cyan-400 font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>2. Dispatcher Core</span>
+                </span>
+                <span>BullMQ Activo</span>
+              </div>
+              <p className="text-[11px] text-zinc-400 font-sans">
+                Firma <code className="text-zinc-300 font-mono">HMAC-SHA256</code> generada y DNS Pinning anti-SSRF aplicado.
+              </p>
+            </div>
+
+            {/* Step 3: Receptor Externo */}
+            <div
+              className={`p-3 rounded border text-xs font-mono space-y-1 transition-all ${
+                activeDelivery?.status === 'DELIVERED'
+                  ? 'border-emerald-700/80 bg-emerald-950/30 text-emerald-300'
+                  : activeDelivery?.status === 'RETRYING'
+                    ? 'border-amber-700/80 bg-amber-950/30 text-amber-300'
+                    : isDeliveryTracking && sinkMode === 'SLOW'
+                      ? 'border-amber-600/80 bg-amber-950/20 text-amber-200'
+                      : 'border-zinc-800 bg-zinc-900/50 text-zinc-300'
+              }`}
+            >
+              <div className="flex items-center justify-between font-semibold">
+                <span className="flex items-center gap-1.5">
+                  {activeDelivery?.status === 'DELIVERED' ? (
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : activeDelivery?.status === 'RETRYING' ? (
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  ) : (
+                    <Clock className="w-3.5 h-3.5 text-zinc-400 animate-spin" />
+                  )}
+                  <span>3. Receptor Egress</span>
+                </span>
+                <span>
+                  {activeDelivery?.status === 'DELIVERED'
+                    ? '200 OK'
+                    : activeDelivery?.status === 'RETRYING'
+                      ? 'REINTENTANDO'
+                      : isDeliveryTracking && sinkMode === 'SLOW'
+                        ? `${inFlightSeconds}s / 5.0s`
+                        : 'DESPACHANDO'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 font-sans">
+                {activeDelivery?.status === 'DELIVERED'
+                  ? `Entrega confirmada en ${activeDelivery.delivery_attempts?.[0]?.latency_ms || 12}ms.`
+                  : activeDelivery?.status === 'RETRYING'
+                    ? `Fallo detectado en intento ${activeDelivery.attempt_count}. Backoff programado.`
+                    : isDeliveryTracking && sinkMode === 'SLOW'
+                      ? 'Conexión abierta esperando respuesta del receptor...'
+                      : 'Esperando respuesta del servidor receptor...'}
+              </p>
+            </div>
+          </div>
+
+          {/* SLOW Mode In-Flight Live Timer Bar */}
+          {isDeliveryTracking && sinkMode === 'SLOW' && activeDelivery?.status !== 'DELIVERED' && inFlightSeconds < 5.0 && (
+            <div className="p-3 rounded bg-amber-950/30 border border-amber-800/60 space-y-2">
+              <div className="flex items-center justify-between text-xs font-mono text-amber-300">
+                <span className="flex items-center gap-1.5 font-bold">
+                  <Clock className="w-3.5 h-3.5 animate-spin" />
+                  <span>Simulación SLOW en curso: Socket esperando respuesta...</span>
+                </span>
+                <span className="font-mono text-amber-200 font-bold">
+                  {inFlightSeconds.toFixed(1)}s / 5.0s límite
+                </span>
+              </div>
+              {/* Animated Progress Bar */}
+              <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-amber-500 h-1.5 rounded-full transition-all duration-100 ease-linear"
+                  style={{ width: `${Math.min(100, (inFlightSeconds / 5.0) * 100)}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-400 font-sans leading-relaxed">
+                El receptor configurado en <strong className="text-zinc-200">SLOW</strong> demora intencionalmente. HookRelay mantiene el socket abierto de forma segura hasta el límite de 5000ms. En cuanto se cumplan los 5s, el motor cortará la conexión para proteger los recursos y activará la cola de reintentos.
+              </p>
+            </div>
+          )}
+
+          {/* Post-Timeout or Failed Retry Diagnostic Notice */}
+          {activeDelivery?.status === 'RETRYING' && (
+            <div className="p-3.5 rounded bg-amber-950/40 border border-amber-700/80 text-xs font-mono space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-amber-300 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    {activeDelivery.delivery_attempts?.[0]?.error_code === 'HEADERS_TIMEOUT' ||
+                    (activeDelivery.delivery_attempts?.[0]?.latency_ms && activeDelivery.delivery_attempts[0].latency_ms >= 4500)
+                      ? 'TIMEOUT DE 5.0s ALCANZADO — SOCKET CORTADO POR SEGURIDAD'
+                      : 'FALLO HTTP 503 — SERVIDOR EXTERNO NO DISPONIBLE'}
+                  </span>
+                </span>
+                <span className="text-[11px] font-mono text-zinc-400 font-normal">
+                  Latencia registrada:{' '}
+                  <strong className="text-zinc-200 font-mono">
+                    {activeDelivery.delivery_attempts?.[0]?.latency_ms ?? 5000}ms
+                  </strong>
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-300 font-sans leading-relaxed">
+                HookRelay abortó el socket tras exceder el límite de seguridad de 5000ms para evitar agotamiento de conexiones (Thread Starvation). El evento no se perdió: permanece encolado en BullMQ con <strong className="text-zinc-200">Exponential Backoff y Full Jitter</strong> para su próximo reintento.
+              </p>
+              <div className="pt-2 border-t border-amber-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2 text-emerald-400 font-semibold font-sans">
+                  <span>
+                    👉 <strong>Prueba interactiva:</strong> Cambia el receptor a &quot;HEALTHY&quot; (200 OK) arriba a la derecha. En el siguiente reintento automático, el estado cambiará a DELIVERED en tiempo real.
+                  </span>
+                </div>
+                {activeDelivery.next_retry_at && (
+                  <span className="text-[10px] text-zinc-400 font-mono shrink-0">
+                    Siguiente intento: {new Date(activeDelivery.next_retry_at).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Success Diagnostic Notice */}
+          {activeDelivery?.status === 'DELIVERED' && (
+            <div className="p-3 rounded bg-emerald-950/40 border border-emerald-700/80 text-xs font-mono space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-emerald-300">
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>ENTREGA EXITOSA CONFIRMADA (HTTP 200 OK)</span>
+              </div>
+              <p className="text-[11px] text-zinc-300 font-sans leading-relaxed">
+                El webhook fue aceptado y verificado por el receptor en{' '}
+                <strong className="text-zinc-100 font-mono">
+                  {activeDelivery.delivery_attempts?.[0]?.latency_ms ?? 12}ms
+                </strong>{' '}
+                en el intento{' '}
+                <strong className="text-zinc-100 font-mono">
+                  {activeDelivery.attempt_count} de {activeDelivery.max_attempts}
+                </strong>
+                . La firma criptográfica HMAC-SHA256 coincidió exactamente.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Left Column: Event Generator */}
