@@ -4,15 +4,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Radio,
   Plus,
+  RefreshCw,
   RotateCw,
-  RefreshCcw,
-  Check,
-  AlertCircle,
-  Copy,
-  Trash2,
-  BookmarkCheck,
   Shield,
-  Layers,
+  ShieldAlert,
+  ShieldCheck,
+  Check,
+  Copy,
+  ExternalLink,
+  RefreshCcw,
+  Trash2,
+  Power,
+  Send,
 } from 'lucide-react';
 import { useTenant } from '../../context/tenant-context';
 import { Badge } from '../../components/ui/badge';
@@ -20,63 +23,75 @@ import { Modal } from '../../components/ui/modal';
 import {
   WebhookEndpoint,
   EventTopic,
-  EnvironmentType,
   EndpointTopicSubscription,
+  EnvironmentType,
 } from '../../lib/types';
 
-// Client-side SSRF heuristic check to provide instant feedback before submitting
-function checkClientSsrf(urlStr: string): { isWarning: boolean; message: string } {
+function checkClientSsrf(urlStr: string): {
+  isBlocked: boolean;
+  isWarning: boolean;
+  message: string;
+} {
   if (!urlStr.trim()) {
-    return { isWarning: false, message: '' };
+    return { isBlocked: false, isWarning: false, message: '' };
   }
 
   try {
-    const url = new URL(urlStr);
-    const host = url.hostname.toLowerCase();
+    const parsed = new URL(urlStr);
+    const hostname = parsed.hostname.toLowerCase();
 
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '0.0.0.0' ||
-      host.endsWith('.local') ||
-      host.endsWith('.internal')
-    ) {
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return {
-        isWarning: true,
-        message:
-          'Localhost or loopback addresses are blocked by SSRF defense in PRODUCTION (permitted only in DEV test sinks).',
+        isBlocked: true,
+        isWarning: false,
+        message: 'Protocol must be http: or https:',
       };
     }
 
     if (
-      host === '169.254.169.254' ||
-      host === 'metadata.google.internal' ||
-      host.startsWith('10.') ||
-      host.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.endsWith('.localhost')
     ) {
       return {
+        isBlocked: false,
         isWarning: true,
         message:
-          'Private IP ranges and cloud metadata services are strictly blocked by SSRF defense.',
+          'Loopback / localhost allowed in Sandbox demo mode only. Blocked in Production.',
       };
     }
 
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    if (
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
+    ) {
       return {
-        isWarning: true,
-        message: 'Only HTTP and HTTPS protocols are accepted.',
+        isBlocked: true,
+        isWarning: false,
+        message: 'RFC 1918 Private IP range blocked by Anti-SSRF policy.',
+      };
+    }
+
+    if (hostname.startsWith('169.254.')) {
+      return {
+        isBlocked: true,
+        isWarning: false,
+        message: 'Cloud Metadata IP (169.254.x.x) blocked by Anti-SSRF policy.',
       };
     }
 
     return {
+      isBlocked: false,
       isWarning: false,
-      message: 'Valid public URL format. Passes SSRF heuristics.',
+      message: 'Valid public endpoint URL (DNS Pinning protected).',
     };
   } catch {
     return {
-      isWarning: true,
-      message: 'Invalid URL format (must include protocol, e.g. https://...)',
+      isBlocked: true,
+      isWarning: false,
+      message: 'Malformed URL syntax.',
     };
   }
 }
@@ -88,6 +103,9 @@ export default function EndpointsPage() {
   const [topics, setTopics] = useState<EventTopic[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Status Filter: 'ALL' | 'CLOSED' | 'OPEN' | 'HALF_OPEN'
+  const [circuitFilter, setCircuitFilter] = useState<string>('ALL');
 
   // New Endpoint Modal
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -150,6 +168,38 @@ export default function EndpointsPage() {
     }
   };
 
+  // Toggle Endpoint Active Status
+  const handleToggleActive = async (ep: WebhookEndpoint) => {
+    try {
+      await apiFetch(`/api/v1/endpoints/${ep.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: !ep.is_active }),
+      });
+      await loadData();
+    } catch (err: any) {
+      alert(`Failed to toggle endpoint status: ${err.message}`);
+    }
+  };
+
+  // Quick Ping Test
+  const handleSendPing = async (_ep: WebhookEndpoint) => {
+    try {
+      await apiFetch('/api/v1/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          topic: 'order.created',
+          data: {
+            ping: true,
+            timestamp: new Date().toISOString(),
+          },
+        }),
+      });
+      alert('Test event dispatched to queue. Check Delivery Inspector for logs.');
+    } catch (err: any) {
+      alert(`Ping failed: ${err.message}`);
+    }
+  };
+
   // Handle Create Endpoint
   const handleCreateEndpoint = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,13 +212,15 @@ export default function EndpointsPage() {
         body: JSON.stringify({
           url: newUrl.trim(),
           description: newDescription.trim() || undefined,
-          failureThreshold: newThreshold,
+          failure_threshold: newThreshold,
           environments: newEnvironments,
         }),
       });
 
-      if (result.signing_secret) {
+      if (result?.signing_secret) {
         setCreatedEndpointSecret(result.signing_secret);
+      } else {
+        setIsCreateOpen(false);
       }
       await loadData();
     } catch (err: any) {
@@ -186,11 +238,8 @@ export default function EndpointsPage() {
         `/api/v1/endpoints/${endpoint.id}/subscriptions`,
       );
       setSubscriptions(subs || []);
-      if (topics.length > 0) {
-        setSelectedTopicToSub(topics[0].id);
-      }
-    } catch (err: any) {
-      alert(`Failed to load subscriptions: ${err.message}`);
+    } catch {
+      setSubscriptions([]);
     }
   };
 
@@ -204,7 +253,7 @@ export default function EndpointsPage() {
         {
           method: 'POST',
           body: JSON.stringify({
-            topicId: selectedTopicToSub,
+            topic_id: selectedTopicToSub,
             environment,
           }),
         },
@@ -236,24 +285,49 @@ export default function EndpointsPage() {
     }
   };
 
-  // Summary Metrics
-  const totalCount = endpoints.length;
-  const closedCount = endpoints.filter((e) => e.circuit_status === 'CLOSED').length;
-  const openCount = endpoints.filter((e) => e.circuit_status === 'OPEN').length;
-  const halfOpenCount = endpoints.filter((e) => e.circuit_status === 'HALF_OPEN').length;
+  // Filter endpoints by selected global environment
+  const visibleEndpoints = endpoints.filter((ep) => {
+    const matchesEnv =
+      !ep.endpoint_environments || ep.endpoint_environments.length === 0
+        ? true
+        : ep.endpoint_environments.some((e) => e.environment === environment);
+
+    if (!matchesEnv) return false;
+
+    if (circuitFilter === 'ALL') return true;
+    return ep.circuit_status === circuitFilter;
+  });
+
+  // Summary Metrics based on current environment
+  const envEndpoints = endpoints.filter((ep) =>
+    !ep.endpoint_environments || ep.endpoint_environments.length === 0
+      ? true
+      : ep.endpoint_environments.some((e) => e.environment === environment),
+  );
+  const totalCount = envEndpoints.length;
+  const closedCount = envEndpoints.filter((e) => e.circuit_status === 'CLOSED').length;
+  const openCount = envEndpoints.filter((e) => e.circuit_status === 'OPEN').length;
+  const halfOpenCount = envEndpoints.filter((e) => e.circuit_status === 'HALF_OPEN').length;
 
   return (
     <div className="p-3 sm:p-5 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6">
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-zinc-100 flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+              Topology & Health
+            </span>
+            <span className="text-[11px] font-mono text-zinc-500">
+              Filtered by: <strong className="text-zinc-300">{environment}</strong>
+            </span>
+          </div>
+          <h1 className="text-lg font-bold tracking-tight text-zinc-100 mt-1 flex items-center gap-2">
             <Radio className="w-4 h-4 text-emerald-400" />
             <span>Webhook Endpoints & Circuit Health</span>
           </h1>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Manage webhook receptors, circuit breaker thresholds, and real-time
-            SSRF defense status.
+          <p className="text-xs text-zinc-400 mt-0.5 max-w-3xl">
+            Manage destination webhook receptors, circuit breaker thresholds, and real-time SSRF defenses.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
@@ -272,46 +346,59 @@ export default function EndpointsPage() {
               setCreateError(null);
               setIsCreateOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>New Endpoint</span>
+            <span>+ Add Endpoint</span>
           </button>
         </div>
       </div>
 
-      {/* Metrics Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="border border-zinc-800 rounded bg-[#0e0e11] p-4 space-y-1">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500">
-            TOTAL ENDPOINTS
-          </span>
-          <p className="text-xl font-mono font-bold text-zinc-100">{totalCount}</p>
-        </div>
-        <div className="border border-zinc-800 rounded bg-[#0e0e11] p-4 space-y-1">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500">
-            HEALTHY (CLOSED)
-          </span>
-          <p className="text-xl font-mono font-bold text-emerald-400">
-            {closedCount}
-          </p>
-        </div>
-        <div className="border border-zinc-800 rounded bg-[#0e0e11] p-4 space-y-1">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500">
-            TRIPPED (OPEN)
-          </span>
-          <p className="text-xl font-mono font-bold text-rose-400">
-            {openCount}
-          </p>
-        </div>
-        <div className="border border-zinc-800 rounded bg-[#0e0e11] p-4 space-y-1">
-          <span className="text-[10px] uppercase font-mono tracking-wider text-zinc-500">
-            PROBING (HALF-OPEN)
-          </span>
-          <p className="text-xl font-mono font-bold text-amber-400">
-            {halfOpenCount}
-          </p>
-        </div>
+      {/* Compact Interactive Pill Bar (Replaces bulky cards) */}
+      <div className="flex flex-wrap items-center gap-2 bg-[#0e1015] p-2.5 rounded-lg border border-zinc-800 text-xs font-mono">
+        <span className="text-[10px] uppercase text-zinc-500 mr-2">Filter Circuits:</span>
+        <button
+          onClick={() => setCircuitFilter('ALL')}
+          className={`px-2.5 py-1 rounded border transition-colors ${
+            circuitFilter === 'ALL'
+              ? 'border-zinc-500 bg-zinc-800 text-zinc-100 font-semibold'
+              : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          All ({totalCount})
+        </button>
+        <button
+          onClick={() => setCircuitFilter('CLOSED')}
+          className={`px-2.5 py-1 rounded border transition-colors ${
+            circuitFilter === 'CLOSED'
+              ? 'border-emerald-700 bg-emerald-950/70 text-emerald-300 font-semibold'
+              : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          Healthy / Closed ({closedCount})
+        </button>
+        <button
+          onClick={() => setCircuitFilter('OPEN')}
+          className={`px-2.5 py-1 rounded border transition-colors ${
+            circuitFilter === 'OPEN'
+              ? 'border-rose-700 bg-rose-950/70 text-rose-300 font-semibold'
+              : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          Tripped / Open ({openCount})
+        </button>
+        {halfOpenCount > 0 && (
+          <button
+            onClick={() => setCircuitFilter('HALF_OPEN')}
+            className={`px-2.5 py-1 rounded border transition-colors ${
+              circuitFilter === 'HALF_OPEN'
+                ? 'border-amber-700 bg-amber-950/70 text-amber-300 font-semibold'
+                : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            Probing ({halfOpenCount})
+          </button>
+        )}
       </div>
 
       {/* Error Notice */}
@@ -322,21 +409,21 @@ export default function EndpointsPage() {
       )}
 
       {/* Endpoints Table */}
-      <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] overflow-hidden">
+      <div className="rounded-lg border border-zinc-800 bg-[#0e1015] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#09090b] border-b border-zinc-800 text-[10px] uppercase font-mono text-zinc-500 tracking-wider">
+            <thead className="bg-[#09090b] border-b border-zinc-800 text-[10px] uppercase font-mono text-zinc-400 tracking-wider">
               <tr>
-                <th className="py-3 px-4">Endpoint URL</th>
-                <th className="py-3 px-4">Circuit Status</th>
-                <th className="py-3 px-4">Failures / Threshold</th>
-                <th className="py-3 px-4">Environments</th>
-                <th className="py-3 px-4">Created At</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-2.5 px-4">Endpoint Destination</th>
+                <th className="py-2.5 px-4">Status</th>
+                <th className="py-2.5 px-4">Circuit Health</th>
+                <th className="py-2.5 px-4">Failures / Threshold</th>
+                <th className="py-2.5 px-4">Environments</th>
+                <th className="py-2.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/80">
-              {endpoints.length === 0 ? (
+            <tbody className="divide-y divide-zinc-800/60 font-sans">
+              {visibleEndpoints.length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
@@ -344,11 +431,11 @@ export default function EndpointsPage() {
                   >
                     {isLoading
                       ? 'Loading endpoints from database...'
-                      : 'No webhook endpoints registered. Click "New Endpoint" to configure a receptor.'}
+                      : `No webhook endpoints found for environment: ${environment}.`}
                   </td>
                 </tr>
               ) : (
-                endpoints.map((ep) => {
+                visibleEndpoints.map((ep) => {
                   const isTripped = ep.circuit_status === 'OPEN';
                   const isResetting = resettingId === ep.id;
 
@@ -358,24 +445,47 @@ export default function EndpointsPage() {
                       className="hover:bg-zinc-900/40 transition-colors"
                     >
                       <td className="py-3 px-4 font-mono">
-                        <div className="text-zinc-200 font-medium break-all">
-                          {ep.url}
+                        <div className="text-zinc-200 font-medium break-all flex items-center gap-2">
+                          <span>{ep.url}</span>
+                          {!ep.is_active && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                              PAUSED
+                            </span>
+                          )}
                         </div>
                         {ep.description && (
                           <div className="text-[11px] text-zinc-500 font-sans mt-0.5">
                             {ep.description}
                           </div>
                         )}
-                        <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                          ID: {ep.id}
+                        <div className="text-[10px] text-zinc-600 font-mono mt-0.5">
+                          ep_{ep.id.slice(0, 8)}
                         </div>
                       </td>
-                      <td className="py-3 px-4">
-                        <Badge statusText={ep.circuit_status}>
-                          {ep.circuit_status}
-                        </Badge>
+                      <td className="py-3 px-4 font-mono">
+                        <button
+                          onClick={() => handleToggleActive(ep)}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
+                            ep.is_active
+                              ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300 hover:bg-emerald-900/60'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800'
+                          }`}
+                          title={ep.is_active ? 'Click to Pause' : 'Click to Activate'}
+                        >
+                          <Power className="w-3 h-3" />
+                          <span>{ep.is_active ? 'ACTIVE' : 'PAUSED'}</span>
+                        </button>
                       </td>
                       <td className="py-3 px-4 font-mono">
+                        <Badge statusText={ep.circuit_status}>
+                          {ep.circuit_status === 'CLOSED'
+                            ? 'CLOSED (HEALTHY)'
+                            : ep.circuit_status === 'OPEN'
+                              ? 'OPEN (TRIPPED)'
+                              : 'HALF_OPEN'}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 font-mono tabular-nums">
                         <span
                           className={
                             ep.consecutive_failures > 0
@@ -411,12 +521,16 @@ export default function EndpointsPage() {
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-4 font-mono text-zinc-400 text-[11px]">
-                        {new Date(ep.created_at).toLocaleDateString()}{' '}
-                        {new Date(ep.created_at).toLocaleTimeString()}
-                      </td>
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleSendPing(ep)}
+                            className="px-2 py-1 rounded border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-mono transition-colors flex items-center gap-1"
+                            title="Dispatch test event ping"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>Ping</span>
+                          </button>
                           <button
                             onClick={() => handleOpenSubscriptions(ep)}
                             className="px-2 py-1 rounded border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-mono transition-colors"
@@ -446,6 +560,12 @@ export default function EndpointsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-zinc-800 text-[11px] font-mono text-zinc-500 flex justify-between items-center">
+          <span>Showing {visibleEndpoints.length} registered endpoints</span>
+          <span>Environment: {environment}</span>
+        </div>
       </div>
 
       {/* New Endpoint Modal */}
@@ -463,8 +583,7 @@ export default function EndpointsPage() {
                 <span>Endpoint Created Successfully</span>
               </div>
               <p className="text-xs text-zinc-300">
-                Save the HMAC signing secret below. HookRelay signs every
-                webhook with HMAC-SHA256 using this secret in the{' '}
+                Save the HMAC signing secret below. HookRelay signs every webhook with HMAC-SHA256 using this secret in the{' '}
                 <code className="text-zinc-100 font-mono">
                   X-HookRelay-Signature
                 </code>{' '}
@@ -509,7 +628,7 @@ export default function EndpointsPage() {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setIsCreateOpen(false)}
-                className="px-4 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-100 transition-colors"
+                className="px-4 py-2 rounded bg-zinc-100 hover:bg-white text-xs font-semibold text-zinc-950 transition-colors"
               >
                 Done
               </button>
@@ -543,10 +662,18 @@ export default function EndpointsPage() {
                   className={`text-[11px] font-mono p-2 rounded border flex items-start gap-1.5 ${
                     ssrfCheck.isWarning
                       ? 'border-amber-800/80 bg-amber-950/30 text-amber-300'
-                      : 'border-emerald-800/80 bg-emerald-950/30 text-emerald-300'
+                      : ssrfCheck.isBlocked
+                        ? 'border-rose-800/80 bg-rose-950/30 text-rose-300'
+                        : 'border-emerald-800/80 bg-emerald-950/30 text-emerald-300'
                   }`}
                 >
-                  <Shield className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  {ssrfCheck.isBlocked ? (
+                    <ShieldAlert className="w-3.5 h-3.5 mt-0.5 shrink-0 text-rose-400" />
+                  ) : ssrfCheck.isWarning ? (
+                    <Shield className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400" />
+                  )}
                   <span>{ssrfCheck.message}</span>
                 </div>
               )}
@@ -561,21 +688,16 @@ export default function EndpointsPage() {
                 type="text"
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="e.g. Production Billing Receptor"
+                placeholder="e.g. Primary Payment Webhook Sink"
                 className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-xs text-zinc-200 focus:outline-hidden focus:border-zinc-700"
               />
             </div>
 
-            {/* Failure Threshold */}
+            {/* Threshold */}
             <div className="space-y-1.5">
-              <div className="flex justify-between items-center">
-                <label className="text-[11px] font-mono text-zinc-400">
-                  CIRCUIT BREAKER FAILURE THRESHOLD: {newThreshold}
-                </label>
-                <span className="text-[10px] text-zinc-500 font-mono">
-                  1 - 50 attempts
-                </span>
-              </div>
+              <label className="text-[11px] font-mono text-zinc-400">
+                CIRCUIT BREAKER FAILURE THRESHOLD: {newThreshold}
+              </label>
               <input
                 type="range"
                 min={1}
@@ -584,143 +706,124 @@ export default function EndpointsPage() {
                 onChange={(e) => setNewThreshold(Number(e.target.value))}
                 className="w-full accent-emerald-500 cursor-pointer"
               />
+              <p className="text-[11px] text-zinc-500 font-sans">
+                Number of consecutive failed dispatches before circuit transitions to OPEN.
+              </p>
             </div>
 
-            {/* Environments */}
+            {/* Environments Selection */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-mono text-zinc-400">
-                ACTIVE ENVIRONMENTS
+                ENVIRONMENTS
               </label>
-              <div className="flex gap-4 text-xs font-mono">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={newEnvironments.includes('PRODUCTION')}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setNewEnvironments([...newEnvironments, 'PRODUCTION']);
-                      } else {
-                        setNewEnvironments(
-                          newEnvironments.filter((env) => env !== 'PRODUCTION'),
-                        );
-                      }
-                    }}
-                    className="accent-emerald-500"
-                  />
-                  <span>PRODUCTION</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={newEnvironments.includes('SANDBOX')}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setNewEnvironments([...newEnvironments, 'SANDBOX']);
-                      } else {
-                        setNewEnvironments(
-                          newEnvironments.filter((env) => env !== 'SANDBOX'),
-                        );
-                      }
-                    }}
-                    className="accent-emerald-500"
-                  />
-                  <span>SANDBOX</span>
-                </label>
+              <div className="flex gap-4">
+                {(['PRODUCTION', 'SANDBOX'] as EnvironmentType[]).map((env) => (
+                  <label
+                    key={env}
+                    className="flex items-center gap-2 text-xs font-mono text-zinc-300 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={newEnvironments.includes(env)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setNewEnvironments([...newEnvironments, env]);
+                        } else {
+                          setNewEnvironments(newEnvironments.filter((x) => x !== env));
+                        }
+                      }}
+                      className="rounded border-zinc-800 bg-zinc-950 text-emerald-500 focus:ring-0"
+                    />
+                    <span>{env}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
-            {/* Submit */}
-            <div className="flex justify-end gap-2 pt-2">
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
               <button
                 type="button"
                 onClick={() => setIsCreateOpen(false)}
-                className="px-3 py-2 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 text-xs font-mono hover:bg-zinc-800 transition-colors"
+                className="px-3 py-1.5 rounded border border-zinc-800 hover:bg-zinc-900 text-xs font-mono text-zinc-400 hover:text-zinc-200 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting || !newUrl.trim()}
-                className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-zinc-950 text-xs font-bold transition-colors disabled:opacity-50"
+                disabled={isSubmitting || ssrfCheck.isBlocked}
+                className="px-3 py-1.5 rounded bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold transition-colors disabled:opacity-50"
               >
-                {isSubmitting ? 'Registering...' : 'Register Endpoint'}
+                {isSubmitting ? 'Registering...' : 'Create Endpoint'}
               </button>
             </div>
           </form>
         )}
       </Modal>
 
-      {/* Topic Subscriptions Modal */}
+      {/* Subscriptions Management Modal */}
       <Modal
         isOpen={!!subModalEndpoint}
         onClose={() => setSubModalEndpoint(null)}
-        title="Topic Subscriptions"
-        description={subModalEndpoint ? `Receptor: ${subModalEndpoint.url}` : ''}
+        title="Manage Topic Subscriptions"
+        description={
+          subModalEndpoint ? `Endpoint: ${subModalEndpoint.url}` : ''
+        }
       >
         <div className="space-y-4">
-          {/* Subscribe New Topic */}
-          <div className="p-3 border border-zinc-800 rounded bg-zinc-950 space-y-2">
-            <span className="text-[10px] uppercase font-mono text-zinc-400">
-              Subscribe to Topic
-            </span>
-            <div className="flex gap-2">
-              <select
-                value={selectedTopicToSub}
-                onChange={(e) => setSelectedTopicToSub(e.target.value)}
-                className="flex-1 bg-[#0c0c0e] border border-zinc-800 rounded px-3 py-1.5 text-xs font-mono text-zinc-200"
-              >
-                {topics.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleAddSubscription}
-                disabled={isSubscribing || !selectedTopicToSub}
-                className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-zinc-100 transition-colors"
-              >
-                {isSubscribing ? 'Subscribing...' : 'Subscribe'}
-              </button>
-            </div>
+          {/* Add Subscription Form */}
+          <div className="flex gap-2">
+            <select
+              value={selectedTopicToSub}
+              onChange={(e) => setSelectedTopicToSub(e.target.value)}
+              className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-hidden"
+            >
+              <option value="">Select a topic to subscribe...</option>
+              {topics.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleAddSubscription}
+              disabled={isSubscribing || !selectedTopicToSub}
+              className="px-3 py-2 rounded bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold transition-colors disabled:opacity-50"
+            >
+              {isSubscribing ? 'Subscribing...' : 'Subscribe'}
+            </button>
           </div>
 
-          {/* Subscriptions List */}
-          <div className="space-y-1.5">
+          {/* Subscribed Topics List */}
+          <div className="space-y-2">
             <span className="text-[10px] uppercase font-mono text-zinc-500">
               Active Subscriptions ({subscriptions.length})
             </span>
-            <div className="divide-y divide-zinc-800/80 border border-zinc-800 rounded bg-[#0c0c0e]">
-              {subscriptions.length === 0 ? (
-                <div className="p-4 text-center text-zinc-600 text-xs font-mono">
-                  No topics subscribed yet.
-                </div>
-              ) : (
-                subscriptions.map((sub) => (
+            {subscriptions.length === 0 ? (
+              <div className="p-4 rounded border border-dashed border-zinc-800 text-center text-xs font-mono text-zinc-500">
+                No active topic subscriptions. This endpoint will not receive events.
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                {subscriptions.map((sub) => (
                   <div
                     key={sub.topic_id}
-                    className="p-3 flex items-center justify-between text-xs font-mono"
+                    className="flex items-center justify-between p-2.5 rounded border border-zinc-800 bg-zinc-950 text-xs font-mono"
                   >
-                    <div>
-                      <div className="text-zinc-200 font-semibold">
-                        {sub.event_topics?.name || sub.topic_id}
-                      </div>
-                      <div className="text-[10px] text-zinc-500">
-                        Subscribed:{' '}
-                        {new Date(sub.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
+                    <span className="text-zinc-200">
+                      {sub.event_topics?.name || sub.topic_id}
+                    </span>
                     <button
                       onClick={() => handleRemoveSubscription(sub.topic_id)}
-                      className="text-zinc-500 hover:text-rose-400 p-1 rounded transition-colors"
+                      className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-zinc-900 transition-colors"
                       title="Unsubscribe topic"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </Modal>

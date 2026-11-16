@@ -1,28 +1,27 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   ListTree,
   RotateCw,
   Search,
   RefreshCw,
-  Play,
   Clock,
-  ArrowRight,
   CheckCircle,
   XCircle,
-  AlertTriangle,
-  Layers,
   ChevronRight,
+  Copy,
+  Check,
+  Terminal,
 } from 'lucide-react';
 import { useTenant } from '../../context/tenant-context';
 import { Badge } from '../../components/ui/badge';
 import { Drawer } from '../../components/ui/drawer';
 import { CodeBlock } from '../../components/ui/code-block';
-import { Delivery, DeliveryAttempt, DeliveryStatus } from '../../lib/types';
+import { Delivery, DeliveryAttempt } from '../../lib/types';
 
 export default function DeliveriesPage() {
-  const { apiFetch } = useTenant();
+  const { apiFetch, environment } = useTenant();
 
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -35,12 +34,23 @@ export default function DeliveriesPage() {
   const [isLoadingDetail, setIsLoadingDetail] = useState<boolean>(false);
   const [isReplaying, setIsReplaying] = useState<boolean>(false);
   const [replaySuccessMsg, setReplaySuccessMsg] = useState<string | null>(null);
+  const [copiedCurl, setCopiedCurl] = useState<boolean>(false);
 
   // Inspection Drawer Tabs
   const [activeTab, setActiveTab] = useState<
     'headers' | 'signed_body' | 'response' | 'error'
   >('headers');
   const [selectedAttemptIndex, setSelectedAttemptIndex] = useState<number>(0);
+
+  const replayPollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (replayPollTimerRef.current) {
+        clearInterval(replayPollTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadDeliveries = useCallback(async () => {
     setIsLoading(true);
@@ -94,7 +104,7 @@ export default function DeliveriesPage() {
     }
   };
 
-  // Handle Manual Replay
+  // Handle Manual Replay with 6s auto-refresh polling
   const handleReplay = async () => {
     if (!selectedDelivery) return;
     setIsReplaying(true);
@@ -103,19 +113,72 @@ export default function DeliveriesPage() {
       await apiFetch(`/api/v1/deliveries/${selectedDelivery.id}/replay`, {
         method: 'POST',
       });
-      setReplaySuccessMsg('Replay scheduled in high-priority delivery queue');
-      // Refresh current details
+      setReplaySuccessMsg('Replay scheduled in high-priority delivery queue. Polling attempts in real-time...');
+
+      // Initial immediate fetch
       const updated = await apiFetch<Delivery>(
         `/api/v1/deliveries/${selectedDelivery.id}`,
       );
-      setSelectedDeliveryDetail(updated);
+      if (updated) {
+        setSelectedDeliveryDetail(updated);
+        if (updated.delivery_attempts && updated.delivery_attempts.length > 0) {
+          setSelectedAttemptIndex(updated.delivery_attempts.length - 1);
+        }
+      }
       await loadDeliveries();
+
+      // Poll every 1s for 6s so Attempt 2 / Attempt 3 appears live
+      let count = 0;
+      if (replayPollTimerRef.current) clearInterval(replayPollTimerRef.current);
+      replayPollTimerRef.current = setInterval(async () => {
+        count++;
+        try {
+          const polled = await apiFetch<Delivery>(
+            `/api/v1/deliveries/${selectedDelivery.id}`,
+          );
+          if (polled) {
+            setSelectedDeliveryDetail(polled);
+            if (polled.delivery_attempts && polled.delivery_attempts.length > 0) {
+              setSelectedAttemptIndex(polled.delivery_attempts.length - 1);
+            }
+          }
+          await loadDeliveries();
+        } catch {
+          // Quiet
+        }
+
+        if (count >= 6) {
+          if (replayPollTimerRef.current) clearInterval(replayPollTimerRef.current);
+          setReplaySuccessMsg('Replay attempt processed.');
+        }
+      }, 1000);
     } catch (err: any) {
       alert(`Failed to replay delivery: ${err.message}`);
     } finally {
       setIsReplaying(false);
     }
   };
+
+  // Copy as cURL helper
+  const handleCopyCurl = () => {
+    if (!selectedDeliveryDetail || !currentAttempt) return;
+    const url = selectedDeliveryDetail.webhook_endpoints?.url || 'https://example.com/webhook';
+    const headers = currentAttempt.request_headers || {};
+    const body = JSON.stringify(selectedDeliveryDetail.events?.payload || {});
+    let curl = `curl -X POST '${url}'`;
+    for (const [k, v] of Object.entries(headers)) {
+      curl += ` \\\n  -H '${k}: ${v}'`;
+    }
+    curl += ` \\\n  -d '${body}'`;
+    navigator.clipboard.writeText(curl);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
+  };
+
+  // Filter deliveries by selected active environment
+  const visibleDeliveries = deliveries.filter(
+    (d) => !d.events?.environment || d.events.environment === environment,
+  );
 
   const attempts: DeliveryAttempt[] =
     selectedDeliveryDetail?.delivery_attempts || [];
@@ -126,13 +189,20 @@ export default function DeliveriesPage() {
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-zinc-100 flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+              Audit Trail
+            </span>
+            <span className="text-[11px] font-mono text-zinc-500">
+              Filtered by: <strong className="text-zinc-300">{environment}</strong>
+            </span>
+          </div>
+          <h1 className="text-lg font-bold tracking-tight text-zinc-100 mt-1 flex items-center gap-2">
             <ListTree className="w-4 h-4 text-emerald-400" />
             <span>Delivery Inspector & Audit Trail</span>
           </h1>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Trace end-to-end webhook dispatches, inspect HTTP request/response
-            signatures, and trigger manual re-enqueues.
+          <p className="text-xs text-zinc-400 mt-0.5 max-w-3xl">
+            Trace end-to-end webhook dispatches, inspect HTTP request/response signatures, and trigger manual re-enqueues.
           </p>
         </div>
         <button
@@ -145,7 +215,7 @@ export default function DeliveriesPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between bg-[#0e0e11] p-3 rounded-lg border border-zinc-800">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between bg-[#0e1015] p-3 rounded-lg border border-zinc-800">
         {/* Status Filter Chips */}
         <div className="flex flex-wrap gap-1.5 w-full sm:w-auto">
           {['ALL', 'DELIVERED', 'RETRYING', 'DEAD_LETTER', 'PENDING'].map(
@@ -180,73 +250,61 @@ export default function DeliveriesPage() {
       </div>
 
       {/* Deliveries Table */}
-      <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] overflow-hidden">
+      <div className="rounded-lg border border-zinc-800 bg-[#0e1015] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-[#09090b] border-b border-zinc-800 text-[10px] uppercase font-mono text-zinc-500 tracking-wider">
-              <tr>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Correlation ID / Event</th>
-                <th className="py-3 px-4">Endpoint Receptor</th>
-                <th className="py-3 px-4">Attempts</th>
-                <th className="py-3 px-4">Latency</th>
-                <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4 text-right">Details</th>
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-zinc-800 bg-zinc-950 text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                <th className="py-2.5 px-4">Event Topic</th>
+                <th className="py-2.5 px-4">Destination Endpoint</th>
+                <th className="py-2.5 px-4">Delivery Status</th>
+                <th className="py-2.5 px-4">Attempts</th>
+                <th className="py-2.5 px-4">Latency</th>
+                <th className="py-2.5 px-4">Timestamp (UTC)</th>
+                <th className="py-2.5 px-4 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/80">
-              {deliveries.length === 0 ? (
+            <tbody className="divide-y divide-zinc-800/60 font-sans">
+              {isLoading && deliveries.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={7}
-                    className="py-12 text-center text-zinc-500 font-mono text-xs"
-                  >
-                    {isLoading
-                      ? 'Loading deliveries from database...'
-                      : 'No deliveries found matching active filter. Trigger events in Demo Sandbox.'}
+                  <td colSpan={7} className="text-center py-10 text-zinc-500 font-mono">
+                    <RotateCw className="w-4 h-4 animate-spin mx-auto mb-2 text-zinc-400" />
+                    Loading deliveries audit trail...
+                  </td>
+                </tr>
+              ) : visibleDeliveries.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-zinc-500 font-mono">
+                    No webhook deliveries found matching current environment ({environment}).
                   </td>
                 </tr>
               ) : (
-                deliveries.map((delivery) => {
+                visibleDeliveries.map((delivery) => {
                   const latestAttempt = delivery.delivery_attempts?.[0];
-
                   return (
                     <tr
                       key={delivery.id}
                       onClick={() => handleSelectDelivery(delivery)}
-                      className="hover:bg-zinc-900/50 cursor-pointer transition-colors"
+                      className="hover:bg-zinc-900/60 transition-colors cursor-pointer group"
                     >
-                      <td className="py-3 px-4">
-                        <Badge statusText={delivery.status}>
-                          {delivery.status}
-                        </Badge>
+                      <td className="py-3 px-4 font-mono font-medium text-zinc-200">
+                        <span className="text-emerald-400">
+                          {delivery.events?.topic_id || 'webhook.event'}
+                        </span>
+                        <div className="text-[10px] text-zinc-500 truncate max-w-[140px]">
+                          evt_{delivery.event_id.slice(0, 8)}
+                        </div>
                       </td>
-                      <td className="py-3 px-4 font-mono">
-                        <div className="text-zinc-200 font-medium truncate max-w-xs">
-                          {delivery.events?.correlation_id || delivery.event_id}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 truncate max-w-xs">
-                          Event: {delivery.events?.id || delivery.event_id}
-                        </div>
-                        {delivery.events?.event_topics?.name && (
-                          <span className="text-[10px] text-zinc-400 bg-zinc-900 border border-zinc-800 px-1.5 py-0.2 rounded mt-0.5 inline-block">
-                            {delivery.events.event_topics.name}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 font-mono">
-                        <div className="text-zinc-300 truncate max-w-sm">
-                          {delivery.webhook_endpoints?.url || delivery.endpoint_id}
-                        </div>
+                      <td className="py-3 px-4 font-mono text-zinc-300 max-w-[220px] truncate">
+                        {delivery.webhook_endpoints?.url || delivery.endpoint_id}
                         {delivery.webhook_endpoints?.circuit_status && (
-                          <div className="text-[10px] text-zinc-500 mt-0.5">
+                          <div className="text-[10px] text-zinc-500">
                             Circuit:{' '}
                             <span
                               className={
-                                delivery.webhook_endpoints.circuit_status ===
-                                'CLOSED'
-                                  ? 'text-emerald-400'
-                                  : 'text-rose-400'
+                                delivery.webhook_endpoints.circuit_status === 'OPEN'
+                                  ? 'text-rose-400 font-semibold'
+                                  : 'text-emerald-400'
                               }
                             >
                               {delivery.webhook_endpoints.circuit_status}
@@ -254,12 +312,17 @@ export default function DeliveriesPage() {
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-4 font-mono text-zinc-300">
+                      <td className="py-3 px-4">
+                        <Badge statusText={delivery.status} size="sm">
+                          {delivery.status}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-zinc-300 tabular-nums">
                         <span
                           className={
                             delivery.attempt_count > 0 &&
                             delivery.status !== 'DELIVERED'
-                              ? 'text-amber-400'
+                              ? 'text-amber-400 font-semibold'
                               : 'text-zinc-200'
                           }
                         >
@@ -270,12 +333,12 @@ export default function DeliveriesPage() {
                           {delivery.max_attempts}
                         </span>
                       </td>
-                      <td className="py-3 px-4 font-mono text-zinc-300">
+                      <td className="py-3 px-4 font-mono text-zinc-300 tabular-nums">
                         {latestAttempt ? (
                           <span
                             className={
                               latestAttempt.latency_ms > 2000
-                                ? 'text-amber-400'
+                                ? 'text-amber-400 font-semibold'
                                 : 'text-emerald-400'
                             }
                           >
@@ -285,14 +348,11 @@ export default function DeliveriesPage() {
                           <span className="text-zinc-600">—</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 font-mono text-zinc-400 text-[11px]">
-                        {new Date(delivery.created_at).toLocaleTimeString()}{' '}
-                        <span className="text-zinc-600">
-                          ({new Date(delivery.created_at).toLocaleDateString()})
-                        </span>
+                      <td className="py-3 px-4 font-mono text-zinc-400 text-[11px] tabular-nums whitespace-nowrap">
+                        {new Date(delivery.created_at).toISOString().replace('T', ' ').slice(0, 19)}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <ChevronRight className="w-4 h-4 text-zinc-600 ml-auto" />
+                        <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 transition-colors ml-auto" />
                       </td>
                     </tr>
                   );
@@ -300,6 +360,12 @@ export default function DeliveriesPage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Footer Count */}
+        <div className="p-3 border-t border-zinc-800 text-[11px] font-mono text-zinc-500 flex justify-between items-center">
+          <span>Showing {visibleDeliveries.length} dispatches</span>
+          <span>Environment: {environment}</span>
         </div>
       </div>
 
@@ -312,14 +378,14 @@ export default function DeliveriesPage() {
         }}
         title="Delivery Inspector"
         subtitle={
-          selectedDeliveryDetail?.id ? `ID: ${selectedDeliveryDetail.id}` : ''
+          selectedDeliveryDetail?.id ? `Delivery ID: ${selectedDeliveryDetail.id}` : ''
         }
       >
         {selectedDeliveryDetail && (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Top Action & Status Bar */}
-            <div className="flex items-center justify-between p-4 rounded border border-zinc-800 bg-[#09090b]">
-              <div className="space-y-1">
+            <div className="flex items-center justify-between p-3.5 rounded border border-zinc-800 bg-[#09090b]">
+              <div className="space-y-0.5">
                 <span className="text-[10px] uppercase font-mono text-zinc-500">
                   Current Status
                 </span>
@@ -333,49 +399,70 @@ export default function DeliveriesPage() {
                 </div>
               </div>
 
-              {/* Replay Delivery Button */}
-              <button
-                onClick={handleReplay}
-                disabled={isReplaying}
-                className="flex items-center gap-1.5 px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-xs font-mono font-semibold transition-colors disabled:opacity-50 border border-zinc-700"
-              >
-                <RefreshCw
-                  className={`w-3.5 h-3.5 ${isReplaying ? 'animate-spin' : ''}`}
-                />
-                <span>{isReplaying ? 'Replaying...' : 'Replay Delivery'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Copy as cURL */}
+                <button
+                  onClick={handleCopyCurl}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 text-xs font-mono transition-colors border border-zinc-800"
+                  title="Copy as cURL command"
+                >
+                  {copiedCurl ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>Copy cURL</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Replay Delivery Button */}
+                <button
+                  onClick={handleReplay}
+                  disabled={isReplaying}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-mono font-semibold transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${isReplaying ? 'animate-spin' : ''}`}
+                  />
+                  <span>{isReplaying ? 'Replaying...' : 'Replay Delivery'}</span>
+                </button>
+              </div>
             </div>
 
             {replaySuccessMsg && (
-              <div className="p-3 border border-emerald-800/80 bg-emerald-950/40 text-emerald-300 text-xs font-mono rounded">
+              <div className="p-3 border border-emerald-800/80 bg-emerald-950/40 text-emerald-300 text-xs font-mono rounded animate-in fade-in duration-200">
                 {replaySuccessMsg}
               </div>
             )}
 
             {/* Overview Metadata Cards */}
-            <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-              <div className="border border-zinc-800 rounded bg-[#0c0c0e] p-3 space-y-1">
+            <div className="grid grid-cols-2 gap-2.5 text-xs font-mono">
+              <div className="border border-zinc-800 rounded bg-[#0c0c0e] p-2.5 space-y-1">
                 <span className="text-[10px] text-zinc-500 uppercase">
                   Event ID
                 </span>
-                <p className="text-zinc-200 break-all select-all">
+                <p className="text-zinc-200 break-all select-all font-mono text-[11px]">
                   {selectedDeliveryDetail.events?.id ||
                     selectedDeliveryDetail.event_id}
                 </p>
               </div>
-              <div className="border border-zinc-800 rounded bg-[#0c0c0e] p-3 space-y-1">
+              <div className="border border-zinc-800 rounded bg-[#0c0c0e] p-2.5 space-y-1">
                 <span className="text-[10px] text-zinc-500 uppercase">
                   Correlation ID
                 </span>
-                <p className="text-zinc-200 break-all select-all">
+                <p className="text-zinc-200 break-all select-all font-mono text-[11px]">
                   {selectedDeliveryDetail.events?.correlation_id || 'N/A'}
                 </p>
               </div>
-              <div className="border border-zinc-800 rounded bg-[#0c0c0e] p-3 space-y-1 col-span-2">
+              <div className="border border-zinc-800 rounded bg-[#0c0c0e] p-2.5 space-y-1 col-span-2">
                 <span className="text-[10px] text-zinc-500 uppercase">
-                  Endpoint URL
+                  Destination URL
                 </span>
-                <p className="text-zinc-200 break-all">
+                <p className="text-zinc-200 break-all font-mono text-[11px]">
                   {selectedDeliveryDetail.webhook_endpoints?.url ||
                     selectedDeliveryDetail.endpoint_id}
                 </p>
@@ -398,9 +485,9 @@ export default function DeliveriesPage() {
                     <button
                       key={att.id}
                       onClick={() => setSelectedAttemptIndex(idx)}
-                      className={`flex flex-col items-start p-2.5 rounded border text-xs font-mono transition-all shrink-0 min-w-[120px] ${
+                      className={`flex flex-col items-start p-2.5 rounded border text-xs font-mono transition-all shrink-0 min-w-[130px] ${
                         selectedAttemptIndex === idx
-                          ? 'border-zinc-500 bg-zinc-800 text-zinc-100 ring-1 ring-zinc-400'
+                          ? 'border-zinc-400 bg-zinc-800 text-zinc-100 ring-1 ring-zinc-400'
                           : 'border-zinc-800 bg-[#0c0c0e] text-zinc-400 hover:border-zinc-700'
                       }`}
                     >
@@ -412,15 +499,15 @@ export default function DeliveriesPage() {
                           <XCircle className="w-3.5 h-3.5 text-rose-400" />
                         )}
                       </div>
-                      <div className="mt-1 flex items-center justify-between w-full text-[11px]">
+                      <div className="mt-1 flex items-center justify-between w-full text-[11px] tabular-nums">
                         <span
                           className={
                             att.http_status && att.http_status < 400
-                              ? 'text-emerald-400'
-                              : 'text-rose-400'
+                              ? 'text-emerald-400 font-semibold'
+                              : 'text-rose-400 font-semibold'
                           }
                         >
-                          HTTP {att.http_status ?? 'ERR'}
+                          HTTP {att.http_status ?? 'TIMEOUT'}
                         </span>
                         <span className="text-zinc-500">{att.latency_ms}ms</span>
                       </div>
@@ -492,12 +579,12 @@ export default function DeliveriesPage() {
                     <div>
                       HTTP Status:{' '}
                       <span className="text-zinc-100">
-                        {currentAttempt.http_status || 'Connection Refused / Timeout'}
+                        {currentAttempt.http_status || 'Connection Refused / Timeout (>5s)'}
                       </span>
                     </div>
                     <div>
                       Latency:{' '}
-                      <span className="text-zinc-100">
+                      <span className="text-zinc-100 tabular-nums">
                         {currentAttempt.latency_ms}ms
                       </span>
                     </div>
