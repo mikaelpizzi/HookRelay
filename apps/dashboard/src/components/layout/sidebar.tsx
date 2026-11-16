@@ -20,11 +20,11 @@ export function Sidebar() {
 
   const navItems = [
     {
-      label: 'Demo Sandbox',
+      label: 'Interactive Playground',
       href: '/',
       activeHrefs: ['/', '/demo'],
       icon: Terminal,
-      description: 'Trigger events & live sink receptor',
+      description: 'Simulate end-to-end webhook dispatch',
     },
     {
       label: 'Endpoints Health',
@@ -38,7 +38,7 @@ export function Sidebar() {
       href: '/deliveries',
       activeHrefs: ['/deliveries'],
       icon: ListTree,
-      description: 'Audit logs, headers & manual replay',
+      description: 'Audit logs, signatures & replays',
     },
     {
       label: 'Settings',
@@ -120,47 +120,15 @@ export function Sidebar() {
             })}
           </nav>
         </div>
-
-        {/* Quick Architecture Reference */}
-        <div className="border border-zinc-800/80 rounded bg-zinc-950 p-3 space-y-2 text-[11px]">
-          <span className="text-[10px] font-mono uppercase text-zinc-500">
-            Active Profile
-          </span>
-          <div className="flex justify-between items-center text-zinc-300 font-mono">
-            <span>Environment:</span>
-            <span
-              className={
-                environment === 'PRODUCTION'
-                  ? 'text-zinc-200 font-semibold'
-                  : 'text-amber-400 font-semibold'
-              }
-            >
-              {environment}
-            </span>
-          </div>
-          <div className="flex justify-between items-center text-zinc-300 font-mono">
-            <span>Isolation:</span>
-            <span className="text-emerald-400">RLS Active</span>
-          </div>
-          <div className="flex justify-between items-center text-zinc-300 font-mono">
-            <span>Outbox:</span>
-            <span className="text-zinc-300">Adaptive Poller</span>
-          </div>
-        </div>
       </div>
 
-      <div className="p-4 border-t border-zinc-800 text-[11px] text-zinc-500 space-y-1 font-mono shrink-0">
-        <div className="flex items-center justify-between">
-          <span>PostgreSQL 16</span>
-          <span className="text-emerald-400">5432</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span>Redis 7</span>
-          <span className="text-emerald-400">6379</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span>AWS Emulator</span>
-          <span className="text-emerald-400">9297</span>
+      <div className="p-4 border-t border-zinc-800/80 text-[11px] font-mono shrink-0">
+        <div className="flex items-center justify-between text-zinc-400">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-zinc-300">System Operational</span>
+          </span>
+          <span className="text-zinc-600">v1.0.0</span>
         </div>
       </div>
     </div>
