@@ -1,0 +1,22 @@
+name: Free-Tier Keep-Alive
+
+on:
+  schedule:
+    # Run at 08:00 UTC on Mondays and Thursdays
+    - cron: '0 8 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping HookRelay Production Health
+        env:
+          APP_URL: ${{ secrets.HOOKRELAY_APP_URL || 'http://localhost:3000' }}
+        run: |
+          if [ -n "$APP_URL" ] && [ "$APP_URL" != "http://localhost:3000" ]; then
+            echo "Pinging $APP_URL/api/v1/health..."
+            curl -f -s -m 15 "$APP_URL/api/v1/health" || echo "Keep-alive ping non-blocking failure"
+          else
+            echo "No external HOOKRELAY_APP_URL secret set. Skipping external ping."
+          fi

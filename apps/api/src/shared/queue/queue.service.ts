@@ -26,7 +26,18 @@ export class QueueService implements OnModuleDestroy {
 
     this.queue = new Queue(WEBHOOK_DELIVERIES_QUEUE, {
       connection: this.redisClient,
+      defaultJobOptions: {
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 200 },
+      },
     });
+  }
+
+  /**
+   * Exposes the dedicated Redis connection for health probe pings.
+   */
+  getRedisClient(): IORedis {
+    return this.redisClient;
   }
 
   /**

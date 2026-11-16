@@ -29,6 +29,7 @@ export interface WebhookProcessResult {
 @Injectable()
 export class DemoSinkService {
   private mode: DemoSinkMode = 'HEALTHY';
+  private readonly sessionModes = new Map<string, { mode: DemoSinkMode; updatedAt: number }>();
   private readonly bufferCapacity = 50;
   private readonly logs: DemoSinkLogItem[] = [];
   private slowDelayMs = 6000;
@@ -38,16 +39,24 @@ export class DemoSinkService {
   constructor(private readonly hmacSigner: HmacSignerService) {}
 
   /**
-   * Returns current simulation mode.
+   * Returns current simulation mode, optionally scoped to visitor session.
    */
-  getMode(): { mode: DemoSinkMode } {
+  getMode(sessionId?: string): { mode: DemoSinkMode } {
+    if (sessionId && this.sessionModes.has(sessionId)) {
+      const entry = this.sessionModes.get(sessionId)!;
+      // 1 hour TTL
+      if (Date.now() - entry.updatedAt < 3600000) {
+        return { mode: entry.mode };
+      }
+      this.sessionModes.delete(sessionId);
+    }
     return { mode: this.mode };
   }
 
   /**
-   * Updates current simulation mode with strict input validation.
+   * Updates current simulation mode with strict input validation, optionally scoped to visitor session.
    */
-  setMode(mode: DemoSinkMode): { mode: DemoSinkMode } {
+  setMode(mode: DemoSinkMode, sessionId?: string): { mode: DemoSinkMode } {
     const normalized = (mode ? String(mode).toUpperCase() : '') as DemoSinkMode;
     if (
       normalized !== 'HEALTHY' &&
@@ -58,8 +67,12 @@ export class DemoSinkService {
         `Invalid mode '${mode}'. Allowed values: HEALTHY, DOWN, SLOW`,
       );
     }
+
+    if (sessionId) {
+      this.sessionModes.set(sessionId, { mode: normalized, updatedAt: Date.now() });
+    }
     this.mode = normalized;
-    return { mode: this.mode };
+    return { mode: normalized };
   }
 
   /**

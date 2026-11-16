@@ -220,7 +220,7 @@ async function main() {
   }
 
   // 6. Seed Demo Webhook Sink Endpoint (SANDBOX only to prevent SSRF confusion)
-  const sinkUrl = 'http://127.0.0.1:3000/api/v1/demo/webhook-sink';
+  const sinkUrl = process.env.DEMO_SINK_URL || 'http://127.0.0.1:3000/api/v1/demo/webhook-sink';
   let sinkEndpoint = await prisma.webhook_endpoints.findFirst({
     where: {
       tenant_id: tenant.id,

@@ -16,6 +16,10 @@ import {
   Trash2,
   Power,
   Send,
+  X,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle,
 } from 'lucide-react';
 import { useTenant } from '../../context/tenant-context';
 import { Badge } from '../../components/ui/badge';
@@ -130,6 +134,20 @@ export default function EndpointsPage() {
   // Reset Circuit State
   const [resettingId, setResettingId] = useState<string | null>(null);
 
+  // Toast Notification
+  const [toast, setToast] = useState<{
+    id: string;
+    type: 'success' | 'warning' | 'error';
+    title: string;
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const ssrfCheck = checkClientSsrf(newUrl);
 
   const loadData = useCallback(async () => {
@@ -161,8 +179,19 @@ export default function EndpointsPage() {
         method: 'POST',
       });
       await loadData();
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: 'Circuit Breaker Reset',
+        message: 'Endpoint status reset to CLOSED and failure counter zeroed.',
+      });
     } catch (err: any) {
-      alert(`Failed to reset circuit: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Circuit Reset Failed',
+        message: err.message,
+      });
     } finally {
       setResettingId(null);
     }
@@ -176,12 +205,23 @@ export default function EndpointsPage() {
         body: JSON.stringify({ is_active: !ep.is_active }),
       });
       await loadData();
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: ep.is_active ? 'Endpoint Deactivated' : 'Endpoint Activated',
+        message: `Endpoint ${ep.url} is now ${ep.is_active ? 'disabled' : 'active'}.`,
+      });
     } catch (err: any) {
-      alert(`Failed to toggle endpoint status: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Update Failed',
+        message: err.message,
+      });
     }
   };
 
-  // Quick Ping Test
+  // Quick Ping Test (Schema-compliant test payload)
   const handleSendPing = async (_ep: WebhookEndpoint) => {
     try {
       await apiFetch('/api/v1/events', {
@@ -189,14 +229,31 @@ export default function EndpointsPage() {
         body: JSON.stringify({
           topic: 'order.created',
           data: {
-            ping: true,
-            timestamp: new Date().toISOString(),
+            order_id: `ord_ping_${Date.now().toString(36)}`,
+            customer: {
+              id: 'cust_ping',
+              email: 'ping@hookrelay.dev',
+            },
+            amount: {
+              total: 1000,
+              currency: 'USD',
+            },
           },
         }),
       });
-      alert('Test event dispatched to queue. Check Delivery Inspector for logs.');
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: 'Ping Event Dispatched',
+        message: 'Schema-compliant test order queued in Outbox. Check Delivery Inspector for dispatch logs.',
+      });
     } catch (err: any) {
-      alert(`Ping failed: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Ping Failed',
+        message: err.message,
+      });
     }
   };
 
@@ -223,6 +280,12 @@ export default function EndpointsPage() {
         setIsCreateOpen(false);
       }
       await loadData();
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: 'Endpoint Created',
+        message: 'Destination registered with DNS Pinning protection and HMAC signing secret.',
+      });
     } catch (err: any) {
       setCreateError(err.message);
     } finally {
@@ -262,8 +325,19 @@ export default function EndpointsPage() {
         `/api/v1/endpoints/${subModalEndpoint.id}/subscriptions`,
       );
       setSubscriptions(subs || []);
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: 'Subscription Added',
+        message: 'Endpoint subscribed to topic dispatches.',
+      });
     } catch (err: any) {
-      alert(`Failed to subscribe: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Failed to subscribe',
+        message: err.message,
+      });
     } finally {
       setIsSubscribing(false);
     }
@@ -280,8 +354,19 @@ export default function EndpointsPage() {
         },
       );
       setSubscriptions(subscriptions.filter((s) => s.topic_id !== topicId));
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: 'Subscription Removed',
+        message: 'Endpoint unsubscribed from topic.',
+      });
     } catch (err: any) {
-      alert(`Failed to unsubscribe: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Failed to unsubscribe',
+        message: err.message,
+      });
     }
   };
 
@@ -310,7 +395,46 @@ export default function EndpointsPage() {
   const halfOpenCount = envEndpoints.filter((e) => e.circuit_status === 'HALF_OPEN').length;
 
   return (
-    <div className="p-3 sm:p-5 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6">
+    <div className="p-3 sm:p-5 md:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-3 left-3 right-3 sm:left-auto sm:right-5 sm:top-5 z-50 sm:max-w-md w-auto animate-in fade-in slide-in-from-top-4 duration-300">
+          <div
+            className={`p-3.5 rounded-lg border shadow-2xl backdrop-blur-md flex items-start gap-3 ${
+              toast.type === 'success'
+                ? 'bg-emerald-950/90 border-emerald-700/80 text-emerald-200'
+                : toast.type === 'warning'
+                  ? 'bg-amber-950/90 border-amber-700/80 text-amber-200'
+                  : 'bg-rose-950/90 border-rose-700/80 text-rose-200'
+            }`}
+          >
+            {toast.type === 'success' && (
+              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            )}
+            {toast.type === 'warning' && (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            )}
+            {toast.type === 'error' && (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            )}
+
+            <div className="flex-1 text-xs space-y-1">
+              <strong className="font-semibold block">{toast.title}</strong>
+              <p className="text-zinc-300 font-sans leading-relaxed text-[11px]">
+                {toast.message}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setToast(null)}
+              className="text-zinc-400 hover:text-zinc-100 transition-colors p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* View Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div>

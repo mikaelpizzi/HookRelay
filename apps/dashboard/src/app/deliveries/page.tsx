@@ -38,7 +38,7 @@ export default function DeliveriesPage() {
 
   // Inspection Drawer Tabs
   const [activeTab, setActiveTab] = useState<
-    'headers' | 'signed_body' | 'response' | 'error'
+    'headers' | 'signed_body' | 'response' | 'error' | 'verify_sig'
   >('headers');
   const [selectedAttemptIndex, setSelectedAttemptIndex] = useState<number>(0);
 
@@ -153,7 +153,7 @@ export default function DeliveriesPage() {
         }
       }, 1000);
     } catch (err: any) {
-      alert(`Failed to replay delivery: ${err.message}`);
+      setReplaySuccessMsg(`Replay failed: ${err.message}`);
     } finally {
       setIsReplaying(false);
     }
@@ -289,7 +289,7 @@ export default function DeliveriesPage() {
                     >
                       <td className="py-3 px-4 font-mono font-medium text-zinc-200">
                         <span className="text-emerald-400">
-                          {delivery.events?.topic_id || 'webhook.event'}
+                          {delivery.events?.event_topics?.name || delivery.events?.topic_id || 'webhook.event'}
                         </span>
                         <div className="text-[10px] text-zinc-500 truncate max-w-[140px]">
                           evt_{delivery.event_id.slice(0, 8)}
@@ -524,6 +524,7 @@ export default function DeliveriesPage() {
                   {[
                     { key: 'headers', label: 'Request Headers' },
                     { key: 'signed_body', label: 'Signed Body' },
+                    { key: 'verify_sig', label: 'Verify Signature' },
                     { key: 'response', label: 'Response Body' },
                     { key: 'error', label: 'Error Details' },
                   ].map((tab) => (
@@ -557,6 +558,42 @@ export default function DeliveriesPage() {
                     }
                     language="json"
                   />
+                )}
+
+                {activeTab === 'verify_sig' && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-sans text-zinc-400">
+                      Constant-time signature verification in TypeScript / Node.js protecting against timing attacks:
+                    </p>
+                    <CodeBlock
+                      code={`import crypto from 'node:crypto';
+
+export function verifyHookRelaySignature(
+  rawBody: string | Buffer,
+  signatureHeader: string,
+  endpointSecret: string,
+): boolean {
+  // Extract hash (supports standard 'v1,<hash>' or raw hex)
+  const hash = signatureHeader.includes('v1,')
+    ? signatureHeader.split('v1,')[1]
+    : signatureHeader;
+
+  const expectedHash = crypto
+    .createHmac('sha256', endpointSecret)
+    .update(rawBody)
+    .digest('hex');
+
+  const expectedBuffer = Buffer.from(expectedHash, 'utf8');
+  const actualBuffer = Buffer.from(hash, 'utf8');
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}`}
+                      language="typescript"
+                    />
+                  </div>
                 )}
 
                 {activeTab === 'response' && (

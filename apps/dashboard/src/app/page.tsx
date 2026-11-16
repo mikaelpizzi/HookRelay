@@ -91,6 +91,7 @@ export default function InteractivePlaygroundPage() {
 
   // Active Delivery Lifecycle Tracking
   const [activeDelivery, setActiveDelivery] = useState<Delivery | null>(null);
+  const [lastCompletedDelivery, setLastCompletedDelivery] = useState<Delivery | null>(null);
   const [inFlightSeconds, setInFlightSeconds] = useState<number>(0);
   const [isDeliveryTracking, setIsDeliveryTracking] = useState<boolean>(false);
 
@@ -103,6 +104,17 @@ export default function InteractivePlaygroundPage() {
 
   // Visual Animated Flow Step: 0 = idle, 1 = app emitting, 2 = HookRelay processing, 3 = delivered
   const [flowStep, setFlowStep] = useState<number>(0);
+
+  // Session ID for Demo Sink State Isolation
+  const getSandboxSessionId = useCallback((): string => {
+    if (typeof window === 'undefined') return 'demo-default';
+    let sid = window.sessionStorage.getItem('hr_sandbox_session');
+    if (!sid) {
+      sid = 'sess_' + Math.random().toString(36).substring(2, 10);
+      window.sessionStorage.setItem('hr_sandbox_session', sid);
+    }
+    return sid;
+  }, []);
 
   // Toast Notification
   const [toast, setToast] = useState<ToastNotification | null>(null);
@@ -136,6 +148,7 @@ export default function InteractivePlaygroundPage() {
     try {
       const data = await apiFetch<{ mode: DemoSinkMode }>(
         '/api/demo/webhook-sink/mode',
+        { headers: { 'x-sandbox-session': getSandboxSessionId() } },
       );
       if (data?.mode) {
         setSinkMode(data.mode);
@@ -143,7 +156,7 @@ export default function InteractivePlaygroundPage() {
     } catch {
       // Quiet fallback
     }
-  }, [apiFetch]);
+  }, [apiFetch, getSandboxSessionId]);
 
   // Load Sink Logs
   const loadSinkLogs = useCallback(async () => {
@@ -151,6 +164,7 @@ export default function InteractivePlaygroundPage() {
     try {
       const data = await apiFetch<DemoSinkLogEntry[]>(
         '/api/demo/webhook-sink/log',
+        { headers: { 'x-sandbox-session': getSandboxSessionId() } },
       );
       if (Array.isArray(data)) {
         setSinkLogs(data);
@@ -160,7 +174,7 @@ export default function InteractivePlaygroundPage() {
     } finally {
       setIsLoadingLogs(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, getSandboxSessionId]);
 
   useEffect(() => {
     loadTopics();
@@ -210,6 +224,7 @@ export default function InteractivePlaygroundPage() {
 
           if (delivery.status === 'DELIVERED') {
             setIsDeliveryTracking(false);
+            setLastCompletedDelivery(delivery);
             setFlowStep(3);
             setToast({
               id: String(Date.now()),
@@ -225,6 +240,7 @@ export default function InteractivePlaygroundPage() {
 
           if (delivery.status === 'DEAD_LETTER') {
             setIsDeliveryTracking(false);
+            setLastCompletedDelivery(delivery);
             setFlowStep(3);
             setToast({
               id: String(Date.now()),
@@ -239,6 +255,7 @@ export default function InteractivePlaygroundPage() {
 
           const latestAttempt = delivery.delivery_attempts?.[0];
           if (latestAttempt && !latestAttempt.is_success) {
+            setLastCompletedDelivery(delivery);
             setFlowStep(3);
             if (
               latestAttempt.error_code === 'HEADERS_TIMEOUT' ||
@@ -315,11 +332,17 @@ export default function InteractivePlaygroundPage() {
     try {
       await apiFetch('/api/demo/webhook-sink/mode', {
         method: 'PUT',
+        headers: { 'x-sandbox-session': getSandboxSessionId() },
         body: JSON.stringify({ mode }),
       });
       setSinkMode(mode);
     } catch (err: any) {
-      alert(`Failed to set receptor mode: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Receptor mode update failed',
+        message: err.message,
+      });
     } finally {
       setIsChangingMode(false);
     }
@@ -330,10 +353,103 @@ export default function InteractivePlaygroundPage() {
     try {
       await apiFetch('/api/demo/webhook-sink/log', {
         method: 'DELETE',
+        headers: { 'x-sandbox-session': getSandboxSessionId() },
       });
       setSinkLogs([]);
     } catch (err: any) {
-      alert(`Failed to clear sink logs: ${err.message}`);
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Failed to clear sink logs',
+        message: err.message,
+      });
+    }
+  };
+
+  // Dispatch Burst of Events in Parallel
+  const handleBurstEvents = async (count = 5) => {
+    if (payloadError) {
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'JSON Syntax Error',
+        message: 'Please correct JSON payload syntax errors before submitting.',
+      });
+      return;
+    }
+
+    let parsedData: any;
+    try {
+      parsedData = JSON.parse(payloadText);
+    } catch {
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Invalid JSON',
+        message: 'Payload is not valid JSON.',
+      });
+      return;
+    }
+
+    const activeTopic =
+      selectedTopic === '__custom__' ? customTopic.trim() : selectedTopic;
+    if (!activeTopic) {
+      setToast({
+        id: String(Date.now()),
+        type: 'warning',
+        title: 'Topic Required',
+        message: 'Please specify a valid event topic.',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFlowStep(1);
+
+    try {
+      const promises = Array.from({ length: count }, (_, idx) => {
+        const itemData = {
+          ...parsedData,
+          order_id: parsedData.order_id
+            ? `${parsedData.order_id}_burst_${idx + 1}`
+            : undefined,
+          burst_index: idx + 1,
+          dispatched_at: new Date().toISOString(),
+        };
+        return apiFetch<any>('/api/v1/events', {
+          method: 'POST',
+          body: JSON.stringify({
+            topic: activeTopic,
+            data: itemData,
+          }),
+        });
+      });
+
+      setFlowStep(2);
+      await Promise.all(promises);
+
+      setToast({
+        id: String(Date.now()),
+        type: 'success',
+        title: `Burst Dispatched (${count}x Events)`,
+        message: `Successfully enqueued ${count} concurrent events into Outbox. BullMQ worker pool is dispatching deliveries in parallel.`,
+      });
+
+      setFlowStep(3);
+      setTimeout(() => {
+        setFlowStep(0);
+        loadSinkLogs();
+      }, 1200);
+    } catch (err: any) {
+      setToast({
+        id: String(Date.now()),
+        type: 'error',
+        title: 'Burst dispatch failed',
+        message: err.message || 'Error executing burst dispatch.',
+      });
+      setFlowStep(0);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -665,24 +781,37 @@ export default function InteractivePlaygroundPage() {
             </div>
           )}
 
-          {/* Primary Action Button: High contrast white/zinc */}
-          <button
-            onClick={handleSubmitEvent}
-            disabled={isSubmitting || !!payloadError || isDeliveryTracking}
-            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded bg-zinc-100 hover:bg-white text-zinc-950 font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? (
-              <>
-                <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Ingesting Event...</span>
-              </>
-            ) : (
-              <>
-                <Send className="w-3.5 h-3.5" />
-                <span>Dispatch Event</span>
-              </>
-            )}
-          </button>
+          {/* Primary Action Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              onClick={handleSubmitEvent}
+              disabled={isSubmitting || !!payloadError || isDeliveryTracking}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded bg-zinc-100 hover:bg-white text-zinc-950 font-medium text-xs transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <>
+                  <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Ingesting Event...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Dispatch Event</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleBurstEvents(5)}
+              disabled={isSubmitting || !!payloadError || isDeliveryTracking}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded border border-zinc-700 hover:border-zinc-500 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Dispatch 5 concurrent events in parallel to test worker queue throughput"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Burst (5x)</span>
+            </button>
+          </div>
 
           {/* Collapsible Advanced: Payload & Idempotency Key */}
           <div className="pt-2 border-t border-zinc-800/80">
@@ -710,7 +839,7 @@ export default function InteractivePlaygroundPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. idem_98a72b0c"
+                    placeholder="Auto-generated per dispatch (or type custom key to test deduplication)"
                     value={idempotencyKey}
                     onChange={(e) => setIdempotencyKey(e.target.value)}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1 text-xs text-zinc-200 font-mono focus:outline-hidden"
@@ -793,79 +922,84 @@ export default function InteractivePlaygroundPage() {
             </div>
 
             {/* Step 3 Live Delivery Status Banner */}
-            <div
-              className={`p-3 rounded border text-xs font-mono space-y-2 transition-all ${
-                activeDelivery?.status === 'DELIVERED'
-                  ? 'border-emerald-800/80 bg-emerald-950/30 text-emerald-300'
-                  : activeDelivery?.status === 'RETRYING'
-                    ? 'border-amber-800/80 bg-amber-950/30 text-amber-300'
-                    : isDeliveryTracking && sinkMode === 'SLOW'
-                      ? 'border-amber-700/80 bg-amber-950/30 text-amber-200'
-                      : 'border-zinc-800 bg-zinc-950/60 text-zinc-400'
-              }`}
-            >
-              <div className="flex items-center justify-between font-semibold">
-                <span className="flex items-center gap-1.5">
-                  {activeDelivery?.status === 'DELIVERED' ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : activeDelivery?.status === 'RETRYING' ? (
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                  ) : isDeliveryTracking ? (
-                    <Clock className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
-                  ) : (
-                    <Clock className="w-3.5 h-3.5 text-zinc-500" />
-                  )}
-                  <span>3. Delivery Status</span>
-                </span>
-                <span>
-                  {activeDelivery?.status === 'DELIVERED'
-                    ? '200 OK (CONFIRMED)'
-                    : activeDelivery?.status === 'RETRYING'
-                      ? 'RETRY SCHEDULED'
-                      : isDeliveryTracking && sinkMode === 'SLOW'
-                        ? `TIMING OUT (${inFlightSeconds}s / 5.0s)`
-                        : isDeliveryTracking
-                          ? 'DISPATCHING...'
-                          : 'IDLE'}
-                </span>
-              </div>
-
-              {/* Plain English Explanation */}
-              <p className="text-[11px] font-sans leading-relaxed text-zinc-300">
-                {activeDelivery?.status === 'DELIVERED'
-                  ? `Delivered to customer server in ${activeDelivery.delivery_attempts?.[0]?.latency_ms || 14}ms. Cryptographic signature verified.`
-                  : activeDelivery?.status === 'RETRYING'
-                    ? `Destination returned 503 or timed out. Attempt ${activeDelivery.attempt_count}/${activeDelivery.max_attempts} failed. Exponential backoff active.`
-                    : isDeliveryTracking && sinkMode === 'SLOW'
-                      ? `Socket open awaiting response (${inFlightSeconds}s). Will abort at 5.0s timeout to protect worker threads.`
-                      : 'Ready to receive and dispatch webhooks.'}
-              </p>
-
-              {/* Technical identifiers */}
-              {lastSubmissionResult?.data && (
-                <div className="pt-2 border-t border-white/10 text-[10px] space-y-1 font-mono text-zinc-400">
-                  <div className="flex justify-between">
-                    <span>Event ID:</span>
-                    <span className="text-zinc-200">
-                      {(
-                        lastSubmissionResult.data?.eventId ||
-                        lastSubmissionResult.data?.id ||
-                        ''
-                      ).slice(0, 8)}
-                      ...
+            {(() => {
+              const displayDelivery = activeDelivery || lastCompletedDelivery;
+              return (
+                <div
+                  className={`p-3 rounded border text-xs font-mono space-y-2 transition-all ${
+                    displayDelivery?.status === 'DELIVERED'
+                      ? 'border-emerald-800/80 bg-emerald-950/30 text-emerald-300'
+                      : displayDelivery?.status === 'RETRYING'
+                        ? 'border-amber-800/80 bg-amber-950/30 text-amber-300'
+                        : isDeliveryTracking && sinkMode === 'SLOW'
+                          ? 'border-amber-700/80 bg-amber-950/30 text-amber-200'
+                          : 'border-zinc-800 bg-zinc-950/60 text-zinc-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-semibold">
+                    <span className="flex items-center gap-1.5">
+                      {displayDelivery?.status === 'DELIVERED' ? (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : displayDelivery?.status === 'RETRYING' ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      ) : isDeliveryTracking ? (
+                        <Clock className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5 text-zinc-500" />
+                      )}
+                      <span>3. Delivery Status</span>
+                    </span>
+                    <span>
+                      {displayDelivery?.status === 'DELIVERED'
+                        ? '200 OK (CONFIRMED)'
+                        : displayDelivery?.status === 'RETRYING'
+                          ? 'RETRY SCHEDULED'
+                          : isDeliveryTracking && sinkMode === 'SLOW'
+                            ? `TIMING OUT (${inFlightSeconds}s / 5.0s)`
+                            : isDeliveryTracking
+                              ? 'DISPATCHING...'
+                              : 'IDLE'}
                     </span>
                   </div>
-                  {activeDelivery && (
-                    <div className="flex justify-between">
-                      <span>Attempts:</span>
-                      <span className="text-zinc-200">
-                        {activeDelivery.attempt_count} / {activeDelivery.max_attempts}
-                      </span>
+
+                  {/* Plain English Explanation */}
+                  <p className="text-[11px] font-sans leading-relaxed text-zinc-300">
+                    {displayDelivery?.status === 'DELIVERED'
+                      ? `Delivered to customer server in ${displayDelivery.delivery_attempts?.[0]?.latency_ms || 14}ms. Cryptographic signature verified.`
+                      : displayDelivery?.status === 'RETRYING'
+                        ? `Destination returned 503 or timed out. Attempt ${displayDelivery.attempt_count}/${displayDelivery.max_attempts} failed. Exponential backoff active.`
+                        : isDeliveryTracking && sinkMode === 'SLOW'
+                          ? `Socket open awaiting response (${inFlightSeconds}s). Will abort at 5.0s timeout to protect worker threads.`
+                          : 'Ready to receive and dispatch webhooks.'}
+                  </p>
+
+                  {/* Technical identifiers */}
+                  {lastSubmissionResult?.data && (
+                    <div className="pt-2 border-t border-white/10 text-[10px] space-y-1 font-mono text-zinc-400">
+                      <div className="flex justify-between">
+                        <span>Event ID:</span>
+                        <span className="text-zinc-200">
+                          {(
+                            lastSubmissionResult.data?.eventId ||
+                            lastSubmissionResult.data?.id ||
+                            ''
+                          ).slice(0, 8)}
+                          ...
+                        </span>
+                      </div>
+                      {displayDelivery && (
+                        <div className="flex justify-between">
+                          <span>Attempts:</span>
+                          <span className="text-zinc-200">
+                            {displayDelivery.attempt_count} / {displayDelivery.max_attempts}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
         </div>
 

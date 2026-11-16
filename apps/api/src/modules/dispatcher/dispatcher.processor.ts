@@ -72,6 +72,8 @@ export class DispatcherProcessor implements OnModuleInit, OnModuleDestroy {
       {
         connection: this.redisClient,
         concurrency: 5,
+        drainDelay: Number(process.env.BULLMQ_DRAIN_DELAY ?? 30),
+        stalledInterval: Number(process.env.BULLMQ_STALLED_INTERVAL ?? 120000),
       },
     );
 
@@ -213,13 +215,24 @@ export class DispatcherProcessor implements OnModuleInit, OnModuleDestroy {
     });
 
     const nextAttemptNumber = delivery.attempt_count + 1;
-    const requestHeaders = {
+    const baseHeaders = {
       'User-Agent': 'HookRelay-Dispatcher/1.0',
       'Content-Type': 'application/json',
       'X-HookRelay-Delivery-Id': delivery.id,
       'X-HookRelay-Event-Id': event.id,
       'X-HookRelay-Correlation-Id': event.correlation_id,
     };
+
+    // Redact sensitive authorization/cookie/secret values prior to audit trail persistence
+    const rawHeadersToRecord = dispatchResult.requestHeaders || baseHeaders;
+    const SENSITIVE_KEYS = ['authorization', 'cookie', 'secret', 'token', 'password', 'api_key', 'x-api-key'];
+    const sanitizedHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawHeadersToRecord)) {
+      const lower = k.toLowerCase();
+      sanitizedHeaders[k] = SENSITIVE_KEYS.some((s) => lower.includes(s))
+        ? '[REDACTED]'
+        : String(v);
+    }
 
     // 4. Database update & Audit recording respecting lock hierarchy: events -> deliveries -> delivery_attempts
     let delayForRetry: number | null = null;
@@ -256,7 +269,7 @@ export class DispatcherProcessor implements OnModuleInit, OnModuleDestroy {
           is_success: dispatchResult.success,
           http_status: dispatchResult.statusCode ?? null,
           latency_ms: dispatchResult.latencyMs,
-          request_headers: requestHeaders,
+          request_headers: sanitizedHeaders,
           response_body: dispatchResult.responseBody ?? null,
           error_code: dispatchResult.errorCode ?? null,
         },

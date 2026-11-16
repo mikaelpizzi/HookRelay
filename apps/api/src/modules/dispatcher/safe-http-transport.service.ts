@@ -22,6 +22,7 @@ export interface WebhookDispatchResult {
   latencyMs: number;
   errorCode?: string;
   errorMessage?: string;
+  requestHeaders?: Record<string, string>;
 }
 
 const MAX_RESPONSE_BYTES = 64 * 1024; // 64 KB response body cap to avoid buffer exhaustion
@@ -123,6 +124,9 @@ export class SafeHttpTransport implements OnModuleDestroy {
     );
 
     // Assemble request headers: caller-provided extraHeaders cannot override security headers
+    const timestampVal = signature.split(',')[0].replace('t=', '');
+    const signatureVal = signature.split(',')[1] || '';
+
     const headers: Record<string, string> = {
       ...options.extraHeaders,
       'User-Agent': 'HookRelay-Dispatcher/1.0',
@@ -131,6 +135,10 @@ export class SafeHttpTransport implements OnModuleDestroy {
       'X-HookRelay-Delivery-Id': options.deliveryId,
       'X-HookRelay-Event-Id': options.eventId,
       'X-Correlation-Id': options.correlationId,
+      // Standard Webhooks specification headers
+      'webhook-id': options.deliveryId,
+      'webhook-timestamp': timestampVal,
+      'webhook-signature': signatureVal,
     };
 
     try {
@@ -180,6 +188,7 @@ export class SafeHttpTransport implements OnModuleDestroy {
         statusCode: response.statusCode,
         responseBody,
         latencyMs,
+        requestHeaders: headers,
       };
     } catch (error: any) {
       const latencyMs = Math.round(performance.now() - startTime);
@@ -218,6 +227,7 @@ export class SafeHttpTransport implements OnModuleDestroy {
         latencyMs,
         errorCode,
         errorMessage: errMsg,
+        requestHeaders: headers,
       };
     }
   }

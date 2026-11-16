@@ -46,8 +46,8 @@ export class DemoSinkController {
    * Retrieves current simulation mode (HEALTHY, DOWN, SLOW).
    */
   @Get('mode')
-  getMode() {
-    return this.demoSinkService.getMode();
+  getMode(@Headers('x-sandbox-session') sessionId?: string) {
+    return this.demoSinkService.getMode(sessionId);
   }
 
   /**
@@ -55,8 +55,11 @@ export class DemoSinkController {
    */
   @Put('mode')
   @Post('mode')
-  setMode(@Body() dto: SetModeDto) {
-    return this.demoSinkService.setMode(dto?.mode);
+  setMode(
+    @Body() dto: SetModeDto,
+    @Headers('x-sandbox-session') sessionId?: string,
+  ) {
+    return this.demoSinkService.setMode(dto?.mode, sessionId);
   }
 
   /**

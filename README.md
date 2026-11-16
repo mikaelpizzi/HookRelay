@@ -370,6 +370,9 @@ flowchart LR
 - **Backend**: Render Web Service or Railway Free Plan (Containerized NestJS API and Worker).
 - **Frontend**: Vercel (Edge-optimized Next.js App Router hosting).
 - **Cold Storage**: Cloudflare R2 (10 GB free storage, zero egress fees) or AWS S3 Standard Free Tier.
+- **Keep-Alive Automation**: Automated GitHub Action (`.github/workflows/keep-alive.yml`) pings `/api/v1/health` twice weekly to prevent serverless instance spin-down.
+- **Interactive OpenAPI / Swagger**: Live documentation and interactive schema testing exposed at `/api/docs`.
+- **Standard Webhooks Spec**: Every egress request injects Standard Webhooks headers (`webhook-id`, `webhook-timestamp`, `webhook-signature`) alongside legacy headers.
 
 ### Production AWS Architecture (Terraform)
 
