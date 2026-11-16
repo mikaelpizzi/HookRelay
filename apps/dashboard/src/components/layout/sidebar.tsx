@@ -169,7 +169,7 @@ export function Sidebar() {
   return (
     <>
       {/* Desktop Persistent Sidebar */}
-      <aside className="hidden md:flex w-64 border-r border-zinc-800 bg-[#09090b] flex-col justify-between shrink-0 select-none">
+      <aside className="hidden md:flex w-64 border-r border-zinc-800 bg-[#09090b] flex-col justify-between shrink-0 select-none h-full overflow-hidden">
         {renderContent(false)}
       </aside>
 

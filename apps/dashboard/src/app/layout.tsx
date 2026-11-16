@@ -34,14 +34,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className="dark">
-      <body className="min-h-screen bg-[#09090b] text-[#fafafa] font-sans antialiased overflow-hidden flex flex-col">
+    <html lang="es" className="dark h-full">
+      <body className="h-full bg-[#09090b] text-[#fafafa] font-sans antialiased overflow-hidden flex flex-col">
         <TenantProvider>
           <ColdStartBanner />
           <Header />
           <SwipeContainer>
             <Sidebar />
-            <main className="flex-1 overflow-y-auto bg-[#09090b] pb-20 md:pb-6">
+            <main className="flex-1 min-h-0 overflow-y-auto bg-[#09090b] pb-24 md:pb-8 touch-scroll">
               {children}
             </main>
           </SwipeContainer>

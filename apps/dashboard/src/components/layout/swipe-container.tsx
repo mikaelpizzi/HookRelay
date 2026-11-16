@@ -40,7 +40,7 @@ export function SwipeContainer({ children }: { children: React.ReactNode }) {
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="flex-1 flex overflow-hidden relative"
+      className="flex-1 flex min-h-0 overflow-hidden relative"
     >
       {children}
     </div>
