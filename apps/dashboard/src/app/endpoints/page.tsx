@@ -256,7 +256,7 @@ export default function EndpointsPage() {
             SSRF defense status.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
           <button
             onClick={() => loadData()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 hover:text-zinc-100 text-xs font-mono transition-colors"
@@ -476,7 +476,7 @@ export default function EndpointsPage() {
               <label className="text-[11px] font-mono text-zinc-400">
                 HMAC SIGNING SECRET
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                 <input
                   type="text"
                   readOnly

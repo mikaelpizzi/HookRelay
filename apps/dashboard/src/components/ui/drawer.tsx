@@ -35,11 +35,11 @@ export function Drawer({
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-xs">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 flex max-w-full pl-10 pointer-events-none">
+      <div className="fixed inset-y-0 right-0 flex max-w-full pl-0 sm:pl-10 pointer-events-none">
         <div
           className={`w-screen ${width} pointer-events-auto bg-[#0d0d10] border-l border-zinc-800 text-zinc-100 shadow-2xl flex flex-col`}
         >
-          <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4 bg-[#09090b]">
+          <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 sm:px-6 sm:py-4 bg-[#09090b]">
             <div>
               <h2 className="text-sm font-semibold tracking-tight text-zinc-100">
                 {title}
@@ -57,7 +57,7 @@ export function Drawer({
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-6">{children}</div>
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
         </div>
       </div>
     </div>

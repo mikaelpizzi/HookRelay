@@ -37,7 +37,7 @@ export function MobileBottomBar() {
 
   return (
     <nav
-      className="fixed bottom-0 inset-x-0 h-14 bg-[#09090b]/95 backdrop-blur-md border-t border-zinc-800 z-30 flex md:hidden items-center justify-around px-2 select-none"
+      className="fixed bottom-0 inset-x-0 bg-[#09090b]/95 backdrop-blur-md border-t border-zinc-800 z-30 flex md:hidden items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] h-[calc(3.5rem+env(safe-area-inset-bottom))] select-none"
       aria-label="Navegación móvil"
     >
       {navItems.map((item) => {

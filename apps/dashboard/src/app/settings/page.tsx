@@ -179,7 +179,7 @@ export default function SettingsPage() {
       {/* Tab 1: Topics */}
       {activeTab === 'topics' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <span className="text-xs font-mono text-zinc-400">
               Registered Event Topics for {tenantName}
             </span>
@@ -188,7 +188,7 @@ export default function SettingsPage() {
                 setTopicError(null);
                 setIsTopicModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 text-xs font-semibold transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 text-xs font-semibold transition-colors self-start sm:self-auto"
             >
               <Plus className="w-4 h-4" />
               <span>Create Topic</span>
@@ -255,7 +255,7 @@ export default function SettingsPage() {
       {/* Tab 2: API Keys */}
       {activeTab === 'keys' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <span className="text-xs font-mono text-zinc-400">
               Active Tenant API Keys (SHA-256 Hashed at Rest)
             </span>
@@ -266,7 +266,7 @@ export default function SettingsPage() {
                 setNewKeyName('');
                 setIsKeyModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 text-xs font-semibold transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-500 text-zinc-950 text-xs font-semibold transition-colors self-start sm:self-auto"
             >
               <Plus className="w-4 h-4" />
               <span>Generate API Key</span>

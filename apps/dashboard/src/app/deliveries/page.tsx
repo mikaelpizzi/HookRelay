@@ -145,7 +145,7 @@ export default function DeliveriesPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-[#0e0e11] p-3 rounded-lg border border-zinc-800">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between bg-[#0e0e11] p-3 rounded-lg border border-zinc-800">
         {/* Status Filter Chips */}
         <div className="flex flex-wrap gap-1.5 w-full sm:w-auto">
           {['ALL', 'DELIVERED', 'RETRYING', 'DEAD_LETTER', 'PENDING'].map(

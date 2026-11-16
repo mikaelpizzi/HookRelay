@@ -386,8 +386,8 @@ export default function DemoSandboxPage() {
       </div>
 
       {/* 1. Diagrama Visual Horizontal de 3 Pasos */}
-      <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-4.5 space-y-3">
-        <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+      <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-3.5 sm:p-4.5 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-zinc-800/80 pb-2.5">
           <div className="flex items-center gap-2">
             <Zap className="w-3.5 h-3.5 text-zinc-400" />
             <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-zinc-300">
@@ -408,10 +408,10 @@ export default function DemoSandboxPage() {
           </span>
         </div>
 
-        <div className="flex md:grid md:grid-cols-3 gap-3 items-stretch relative overflow-x-auto pb-2 md:pb-0 snap-x snap-mandatory">
+        <div className="flex md:grid md:grid-cols-3 gap-3 items-stretch relative overflow-x-auto pb-2 md:pb-0 snap-x snap-mandatory scrollbar-none">
           {/* Paso 1: Tu App Emisora */}
           <div
-            className={`min-w-[82vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
+            className={`min-w-[85vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
               flowStep === 1
                 ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-lg shadow-emerald-950/50'
                 : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
@@ -441,7 +441,7 @@ export default function DemoSandboxPage() {
 
           {/* Paso 2: HookRelay Engine */}
           <div
-            className={`min-w-[82vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
+            className={`min-w-[85vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
               flowStep === 2
                 ? 'border-cyan-500 bg-cyan-950/40 ring-1 ring-cyan-500/50 shadow-lg shadow-cyan-950/50'
                 : 'border-zinc-800 bg-zinc-950/80 text-zinc-300'
@@ -471,7 +471,7 @@ export default function DemoSandboxPage() {
 
           {/* Paso 3: Servidor Receptor */}
           <div
-            className={`min-w-[82vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
+            className={`min-w-[85vw] sm:min-w-[320px] md:min-w-0 snap-center p-3.5 rounded-lg border transition-all duration-300 ${
               flowStep === 3
                 ? sinkMode === 'HEALTHY'
                   ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-lg shadow-emerald-950/50'
@@ -512,13 +512,18 @@ export default function DemoSandboxPage() {
             </p>
           </div>
         </div>
+
+        {/* Indicador de pasos táctil en móvil */}
+        <div className="flex md:hidden items-center justify-center gap-2 pt-0.5">
+          <span className="text-[10px] font-mono text-zinc-500">Paso 1 Tu App &rarr; 2 HookRelay &rarr; 3 Receptor</span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Left Column: Event Generator */}
         <div className="space-y-4">
-          <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-zinc-800 pb-3">
               <div>
                 <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
                   Event Dispatch Generator
@@ -527,14 +532,15 @@ export default function DemoSandboxPage() {
                   Simula tu aplicación enviando una notificación de negocio en tiempo real.
                 </p>
               </div>
-              <div className="flex gap-1.5 shrink-0">
+              <div className="flex items-center gap-1.5 self-start sm:self-auto shrink-0">
+                <span className="text-[10px] font-mono text-zinc-500 uppercase mr-0.5">Presets:</span>
                 {Object.keys(SAMPLE_PAYLOADS).map((tplName) => (
                   <button
                     key={tplName}
                     onClick={() => handleTemplateSelect(tplName)}
                     className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
                       selectedTopic === tplName
-                        ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
+                        ? 'border-emerald-600 bg-emerald-950/80 text-emerald-300 font-bold'
                         : 'border-zinc-800/80 bg-zinc-950 text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
@@ -549,7 +555,7 @@ export default function DemoSandboxPage() {
               <label className="text-[11px] font-mono text-zinc-400">
                 TÓPICO DEL EVENTO
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <select
                   value={selectedTopic}
                   onChange={(e) => {
@@ -562,7 +568,7 @@ export default function DemoSandboxPage() {
                       setPayloadError(null);
                     }
                   }}
-                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-hidden focus:border-zinc-700"
+                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-hidden focus:border-zinc-700"
                 >
                   {topics.map((t) => (
                     <option key={t.id} value={t.name}>
@@ -610,8 +616,8 @@ export default function DemoSandboxPage() {
                 type="text"
                 value={idempotencyKey}
                 onChange={(e) => setIdempotencyKey(e.target.value)}
-                placeholder="e.g. idem_98a72b0c (garantiza entrega única si la red reintenta)"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs font-mono text-zinc-200 focus:outline-hidden focus:border-zinc-700"
+                placeholder="e.g. idem_98a72b0c (opcional)"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-hidden focus:border-zinc-700"
               />
             </div>
 
@@ -634,8 +640,8 @@ export default function DemoSandboxPage() {
               <textarea
                 value={payloadText}
                 onChange={(e) => handlePayloadChange(e.target.value)}
-                rows={10}
-                className={`w-full bg-[#0c0c0e] font-mono text-xs text-zinc-300 p-3 rounded border leading-relaxed focus:outline-hidden ${
+                rows={7}
+                className={`w-full bg-[#0c0c0e] font-mono text-xs text-zinc-300 p-3 rounded border leading-relaxed focus:outline-hidden resize-y ${
                   payloadError ? 'border-rose-800/80' : 'border-zinc-800 focus:border-zinc-700'
                 }`}
                 spellCheck={false}
@@ -646,10 +652,10 @@ export default function DemoSandboxPage() {
             <button
               onClick={handleTriggerEvent}
               disabled={isSubmitting || !!payloadError}
-              className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded text-xs font-semibold tracking-wide transition-all ${
+              className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded text-xs font-semibold tracking-wide transition-all active:scale-[0.99] ${
                 isSubmitting || !!payloadError
                   ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700/50'
-                  : 'bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold border border-emerald-500'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold border border-emerald-500 shadow-md shadow-emerald-950/40'
               }`}
             >
               <Send className="w-3.5 h-3.5" />
@@ -713,8 +719,8 @@ export default function DemoSandboxPage() {
         {/* Right Column: Receptor Control & Live Feed */}
         <div className="space-y-4">
           {/* Live Receptor Control */}
-          <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
               <div>
                 <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
                   Receptor Simulation Control
@@ -723,7 +729,7 @@ export default function DemoSandboxPage() {
                   Simula el estado del servidor externo que recibe el webhook (prueba qué ocurre si se cae o responde lento).
                 </p>
               </div>
-              <Badge statusText={sinkMode} size="sm">
+              <Badge statusText={sinkMode} size="sm" className="self-start sm:self-auto shrink-0">
                 MODE: {sinkMode}
               </Badge>
             </div>
@@ -733,53 +739,53 @@ export default function DemoSandboxPage() {
               <button
                 onClick={() => handleModeChange('HEALTHY')}
                 disabled={isChangingMode}
-                className={`flex flex-col items-center justify-center p-3 rounded border text-xs font-mono transition-all ${
+                className={`flex flex-col items-center justify-center p-2 sm:p-3 rounded border text-xs font-mono transition-all ${
                   sinkMode === 'HEALTHY'
                     ? 'border-emerald-600 bg-emerald-950/80 text-emerald-300 font-bold ring-1 ring-emerald-500'
                     : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
                 }`}
               >
                 <span className="text-xs font-bold">HEALTHY</span>
-                <span className="text-[10px] text-zinc-500 mt-0.5">
-                  200 OK (~5ms)
+                <span className="text-[10px] text-zinc-500 mt-0.5 truncate max-w-full">
+                  200 OK
                 </span>
               </button>
 
               <button
                 onClick={() => handleModeChange('SLOW')}
                 disabled={isChangingMode}
-                className={`flex flex-col items-center justify-center p-3 rounded border text-xs font-mono transition-all ${
+                className={`flex flex-col items-center justify-center p-2 sm:p-3 rounded border text-xs font-mono transition-all ${
                   sinkMode === 'SLOW'
                     ? 'border-amber-600 bg-amber-950/80 text-amber-300 font-bold ring-1 ring-amber-500'
                     : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
                 }`}
               >
                 <span className="text-xs font-bold">SLOW</span>
-                <span className="text-[10px] text-zinc-500 mt-0.5">
-                  Timeout (6000ms)
+                <span className="text-[10px] text-zinc-500 mt-0.5 truncate max-w-full">
+                  Timeout (&gt;5s)
                 </span>
               </button>
 
               <button
                 onClick={() => handleModeChange('DOWN')}
                 disabled={isChangingMode}
-                className={`flex flex-col items-center justify-center p-3 rounded border text-xs font-mono transition-all ${
+                className={`flex flex-col items-center justify-center p-2 sm:p-3 rounded border text-xs font-mono transition-all ${
                   sinkMode === 'DOWN'
                     ? 'border-rose-600 bg-rose-950/80 text-rose-300 font-bold ring-1 ring-rose-500'
                     : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
                 }`}
               >
                 <span className="text-xs font-bold">DOWN</span>
-                <span className="text-[10px] text-zinc-500 mt-0.5">
-                  503 Service Unavail
+                <span className="text-[10px] text-zinc-500 mt-0.5 truncate max-w-full">
+                  503 Error
                 </span>
               </button>
             </div>
           </div>
 
           {/* Live Sink Event Feed */}
-          <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div className="rounded-lg border border-zinc-800 bg-[#0e0e11] p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-zinc-800 pb-3">
               <div>
                 <span className="text-xs font-semibold text-zinc-200 tracking-wide uppercase font-mono">
                   Live Receptor Webhook Feed
@@ -788,7 +794,7 @@ export default function DemoSandboxPage() {
                   Inspección en tiempo real de los webhooks recibidos y verificación criptográfica de la firma HMAC-SHA256.
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                 <button
                   onClick={() => setAutoRefreshLogs(!autoRefreshLogs)}
                   className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
