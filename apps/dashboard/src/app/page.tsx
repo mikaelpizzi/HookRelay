@@ -314,7 +314,7 @@ export default function InteractivePlaygroundPage() {
     setIsChangingMode(true);
     try {
       await apiFetch('/api/demo/webhook-sink/mode', {
-        method: 'POST',
+        method: 'PUT',
         body: JSON.stringify({ mode }),
       });
       setSinkMode(mode);

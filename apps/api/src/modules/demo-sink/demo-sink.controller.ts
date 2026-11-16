@@ -51,9 +51,10 @@ export class DemoSinkController {
   }
 
   /**
-   * Configures simulation mode.
+   * Configures simulation mode (supports both PUT and POST).
    */
   @Put('mode')
+  @Post('mode')
   setMode(@Body() dto: SetModeDto) {
     return this.demoSinkService.setMode(dto?.mode);
   }
