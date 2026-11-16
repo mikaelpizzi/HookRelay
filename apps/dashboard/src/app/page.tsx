@@ -190,8 +190,11 @@ export default function DemoSandboxPage() {
 
   // Real-time Delivery Poller
   useEffect(() => {
-    if (!lastSubmissionResult?.data?.id || !isDeliveryTracking) return;
-    const eventId = lastSubmissionResult.data.id;
+    const eventId =
+      lastSubmissionResult?.data?.eventId ||
+      lastSubmissionResult?.data?.id ||
+      lastSubmissionResult?.data?.event_id;
+    if (!eventId || !isDeliveryTracking) return;
 
     let isMounted = true;
     let pollCount = 0;
@@ -239,7 +242,10 @@ export default function DemoSandboxPage() {
           const latestAttempt = delivery.delivery_attempts?.[0];
           if (latestAttempt && !latestAttempt.is_success) {
             setFlowStep(3);
-            if (latestAttempt.error_code === 'HEADERS_TIMEOUT' || (latestAttempt.latency_ms && latestAttempt.latency_ms >= 4500)) {
+            if (
+              latestAttempt.error_code === 'HEADERS_TIMEOUT' ||
+              (latestAttempt.latency_ms && latestAttempt.latency_ms >= 4500)
+            ) {
               setToast({
                 id: String(Date.now()),
                 type: 'warning',
@@ -248,7 +254,10 @@ export default function DemoSandboxPage() {
                   'El servidor receptor tardó más de 5000ms. HookRelay abortó el socket TCP para proteger el sistema, registró el intento fallido y agendó el reintento en BullMQ con Backoff + Jitter.',
                 details: `Intento ${delivery.attempt_count}/${delivery.max_attempts} fallido | Latencia: ${latestAttempt.latency_ms}ms`,
               });
-            } else if (latestAttempt.http_status === 503) {
+            } else if (
+              latestAttempt.http_status === 503 ||
+              sinkMode === 'DOWN'
+            ) {
               setToast({
                 id: String(Date.now()),
                 type: 'warning',
@@ -271,12 +280,12 @@ export default function DemoSandboxPage() {
     };
 
     poll();
-    const interval = setInterval(poll, 1000);
+    const interval = setInterval(poll, 600);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [lastSubmissionResult, isDeliveryTracking, apiFetch, loadSinkLogs]);
+  }, [lastSubmissionResult, isDeliveryTracking, apiFetch, loadSinkLogs, sinkMode]);
 
   // Handle Payload Changes
   const handlePayloadChange = (text: string) => {
@@ -389,7 +398,7 @@ export default function DemoSandboxPage() {
         title: 'Evento persistido en Outbox (202 ACCEPTED)',
         message:
           'HookRelay validó el esquema JSON y aseguró el evento en PostgreSQL. El dispatcher seguro encola el envío en BullMQ hacia el receptor.',
-        details: `Latencia de ingesta: ${latencyMs}ms | Event ID: ${result?.id || 'Generado'}`,
+        details: `Latencia de ingesta: ${latencyMs}ms | Event ID: ${result?.eventId || result?.id || 'Generado'}`,
       });
 
       // Refrescar registros del receptor de inmediato
@@ -628,7 +637,15 @@ export default function DemoSandboxPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-mono text-zinc-400">
-                Event ID: <strong className="text-zinc-200 font-mono">{lastSubmissionResult.data?.id?.slice(0, 8)}...</strong>
+                Event ID:{' '}
+                <strong className="text-zinc-200 font-mono">
+                  {(
+                    lastSubmissionResult.data?.eventId ||
+                    lastSubmissionResult.data?.id ||
+                    '........'
+                  ).slice(0, 8)}
+                  ...
+                </strong>
               </span>
               <Badge
                 statusText={
@@ -973,7 +990,8 @@ export default function DemoSandboxPage() {
                     <div>
                       Event ID:{' '}
                       <span className="text-zinc-100 font-bold">
-                        {lastSubmissionResult.data?.id}
+                        {lastSubmissionResult.data?.eventId ||
+                          lastSubmissionResult.data?.id}
                       </span>
                     </div>
                     <div>
