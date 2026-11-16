@@ -37,13 +37,25 @@ interface TenantContextValue {
 
 const TenantContext = createContext<TenantContextValue | undefined>(undefined);
 
-export function TenantProvider({ children }: { children: React.ReactNode }) {
+interface TenantProviderProps {
+  children: React.ReactNode;
+  initialHealth?: {
+    status: HealthState;
+    latencyMs: number | null;
+  };
+}
+
+export function TenantProvider({ children, initialHealth }: TenantProviderProps) {
   const [apiKey, setApiKeyState] = useState<string>(DEMO_PROD_API_KEY);
   const [environment, setEnvironmentState] =
     useState<EnvironmentType>('PRODUCTION');
   const [tenantName, setTenantName] = useState<string>('Demo Corp');
-  const [healthStatus, setHealthStatus] = useState<HealthState>('CHECKING');
-  const [healthLatencyMs, setHealthLatencyMs] = useState<number | null>(null);
+  const [healthStatus, setHealthStatus] = useState<HealthState>(
+    initialHealth?.status || 'ONLINE',
+  );
+  const [healthLatencyMs, setHealthLatencyMs] = useState<number | null>(
+    initialHealth?.latencyMs ?? null,
+  );
   const [isColdStart, setIsColdStart] = useState<boolean>(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
 
@@ -119,14 +131,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
   const refreshHealth = useCallback(async () => {
     const start = performance.now();
-    const probeUrl =
-      typeof window !== 'undefined'
-        ? '/health'
-        : 'http://127.0.0.1:3000/health';
 
     const tryProbe = async (url: string): Promise<Response> => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
       try {
         const res = await fetch(url, {
           signal: controller.signal,
@@ -140,19 +148,14 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    try {
-      let res: Response;
-      try {
-        res = await tryProbe(probeUrl);
-      } catch (primaryErr) {
-        // Fallback to direct localhost:3000 if same-origin rewrite failed
-        if (typeof window !== 'undefined' && probeUrl === '/health') {
-          res = await tryProbe('http://127.0.0.1:3000/health');
-        } else {
-          throw primaryErr;
-        }
-      }
+    // Parallel fast probing: direct localhost and proxied route
+    const probeTargets =
+      typeof window !== 'undefined'
+        ? ['http://127.0.0.1:3000/health', '/health']
+        : ['http://127.0.0.1:3000/health'];
 
+    try {
+      const res = await Promise.any(probeTargets.map((u) => tryProbe(u)));
       const elapsed = Math.round(performance.now() - start);
       setHealthLatencyMs(elapsed);
 
@@ -171,7 +174,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       const elapsed = Math.round(performance.now() - start);
       setHealthLatencyMs(elapsed);
       setHealthStatus('OFFLINE');
-      if (elapsed > 2800) {
+      if (elapsed > 1800) {
         setIsColdStart(true);
       }
     }

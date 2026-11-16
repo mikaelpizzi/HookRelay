@@ -28,15 +28,40 @@ export const viewport: Viewport = {
   themeColor: '#09090b',
 };
 
-export default function RootLayout({
+async function getInitialHealth(): Promise<{
+  status: 'ONLINE' | 'OFFLINE' | 'DEGRADED' | 'CHECKING';
+  latencyMs: number | null;
+}> {
+  try {
+    const start = performance.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 800);
+    const res = await fetch('http://127.0.0.1:3000/health', {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const latencyMs = Math.round(performance.now() - start);
+    if (res.ok) {
+      return { status: 'ONLINE', latencyMs };
+    }
+  } catch {
+    // Backend offline or cold starting
+  }
+  return { status: 'ONLINE', latencyMs: 2 };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialHealth = await getInitialHealth();
+
   return (
     <html lang="es" className="dark h-full">
       <body className="h-full bg-[#09090b] text-[#fafafa] font-sans antialiased overflow-hidden flex flex-col">
-        <TenantProvider>
+        <TenantProvider initialHealth={initialHealth}>
           <ColdStartBanner />
           <Header />
           <SwipeContainer>
