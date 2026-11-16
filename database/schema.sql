@@ -287,7 +287,7 @@ BEGIN
           AND (consecutive_failures > 0 OR circuit_status <> 'CLOSED');
     ELSE
         UPDATE webhook_endpoints
-        SET consecutive_failures = consecutive_failures + 1,
+        SET consecutive_failures = LEAST(consecutive_failures + 1, failure_threshold),
             circuit_status = CASE
                 WHEN (consecutive_failures + 1) >= failure_threshold THEN 'OPEN'::circuit_state
                 ELSE circuit_status

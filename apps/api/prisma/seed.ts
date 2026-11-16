@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 const TOPIC_SCHEMAS: Record<string, { description: string; schema: any }> = {
   'order.created': {
-    description: 'Disparado cuando un cliente crea una nueva orden de compra',
+    description: 'Triggered when a customer creates a new purchase order',
     schema: {
       type: 'object',
       required: ['order_id', 'customer', 'amount'],
@@ -43,7 +43,7 @@ const TOPIC_SCHEMAS: Record<string, { description: string; schema: any }> = {
     },
   },
   'payment.completed': {
-    description: 'Confirmación de pago procesado exitosamente por pasarela externa',
+    description: 'External payment gateway confirmation settled successfully',
     schema: {
       type: 'object',
       required: ['payment_id', 'order_id', 'status'],
@@ -58,7 +58,7 @@ const TOPIC_SCHEMAS: Record<string, { description: string; schema: any }> = {
     },
   },
   'user.registered': {
-    description: 'Nuevo usuario registrado y validado en la plataforma',
+    description: 'New tenant user account created and verified',
     schema: {
       type: 'object',
       required: ['user_id', 'email'],
@@ -71,7 +71,7 @@ const TOPIC_SCHEMAS: Record<string, { description: string; schema: any }> = {
     },
   },
   'invoice.paid': {
-    description: 'Factura pagada y conciliada contablemente',
+    description: 'Invoice settled and reconciled by billing engine',
     schema: {
       type: 'object',
       required: ['invoice_id', 'amount', 'currency'],
@@ -219,7 +219,7 @@ async function main() {
     console.log(`Event Topic ready: ${topic.name} (${topic.id}) in PRODUCTION and SANDBOX`);
   }
 
-  // 6. Seed Demo Webhook Sink Endpoint
+  // 6. Seed Demo Webhook Sink Endpoint (SANDBOX only to prevent SSRF confusion)
   const sinkUrl = 'http://127.0.0.1:3000/api/v1/demo/webhook-sink';
   let sinkEndpoint = await prisma.webhook_endpoints.findFirst({
     where: {
@@ -233,7 +233,7 @@ async function main() {
       data: {
         tenant_id: tenant.id,
         url: sinkUrl,
-        description: 'Internal Live Demo Sink Endpoint',
+        description: 'Internal Demo Sink (Sandbox)',
         signing_secret: 'whsec_demo_corporate_live_secret_key_32bytes',
         is_active: true,
         circuit_status: 'CLOSED',
@@ -244,6 +244,7 @@ async function main() {
     sinkEndpoint = await prisma.webhook_endpoints.update({
       where: { id: sinkEndpoint.id },
       data: {
+        description: 'Internal Demo Sink (Sandbox)',
         is_active: true,
         circuit_status: 'CLOSED',
         consecutive_failures: 0,
@@ -252,36 +253,19 @@ async function main() {
     });
   }
 
-  // Ensure endpoint environments (PRODUCTION and SANDBOX)
-  await prisma.endpoint_environments.upsert({
-    where: {
-      endpoint_id_environment: {
-        endpoint_id: sinkEndpoint.id,
-        environment: 'PRODUCTION',
-      },
-    },
-    update: {},
-    create: {
-      endpoint_id: sinkEndpoint.id,
-      environment: 'PRODUCTION',
-    },
+  // Ensure endpoint environment is strictly SANDBOX
+  await prisma.endpoint_environments.deleteMany({
+    where: { endpoint_id: sinkEndpoint.id },
   });
 
-  await prisma.endpoint_environments.upsert({
-    where: {
-      endpoint_id_environment: {
-        endpoint_id: sinkEndpoint.id,
-        environment: 'SANDBOX',
-      },
-    },
-    update: {},
-    create: {
+  await prisma.endpoint_environments.create({
+    data: {
       endpoint_id: sinkEndpoint.id,
       environment: 'SANDBOX',
     },
   });
 
-  console.log(`Demo Sink Endpoint ready: ${sinkEndpoint.url} (${sinkEndpoint.id})`);
+  console.log(`Demo Sink Endpoint ready: ${sinkEndpoint.url} (${sinkEndpoint.id}) in SANDBOX`);
 
   // 7. Subscribe Demo Sink Endpoint to all demo topics
   for (const [topicName, topicId] of Object.entries(createdTopics)) {

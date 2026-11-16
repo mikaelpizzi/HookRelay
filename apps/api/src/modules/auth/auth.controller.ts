@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -59,6 +60,25 @@ export class AuthController {
     @Body() dto: CreateApiKeyDto,
   ) {
     return this.authService.createApiKey(tenantId, dto);
+  }
+
+  @Delete('api-keys/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(ApiKeyGuard)
+  async revokeMyApiKey(
+    @CurrentTenant() tenantId: string,
+    @Param('id') keyId: string,
+  ): Promise<void> {
+    await this.authService.revokeApiKey(tenantId, keyId);
+  }
+
+  @Delete('tenants/:id/api-keys/:keyId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeTenantApiKey(
+    @Param('id') tenantId: string,
+    @Param('keyId') keyId: string,
+  ): Promise<void> {
+    await this.authService.revokeApiKey(tenantId, keyId);
   }
 
   /**
