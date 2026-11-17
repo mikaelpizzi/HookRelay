@@ -355,7 +355,7 @@ The platform includes a pre-configured multi-tenant environment ready for explor
 
 ### Free-Tier Cloud Deployment
 
-For cost-free cloud hosting and staging deployments ($0/month forever without credit cards, see detailed step-by-step walkthrough in [Cloud Deployment Guide](docs/DEPLOYMENT.md)):
+For cost-free cloud hosting and staging deployments ($0/month forever without credit cards):
 
 ```mermaid
 flowchart LR

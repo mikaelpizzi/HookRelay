@@ -9,3 +9,8 @@ coverage/
 .turbo/
 *.tsbuildinfo
 STUDY_GUIDE.md
+
+# Internal agent directives and initial specification docs
+docs/
+.agents/
+AGENTS.md
